@@ -18,13 +18,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
 /* function prototypes */
 void eval(char *cmdline);
 char* which_command(char** argv);
-void pipeline(char** argv, int bg, char* pipe_in);
+void pipeline(char** argv, int bg);
 int parseline(char *buf, char **argv);
 int builtin_command(char **argv); 
 
@@ -54,7 +55,7 @@ void eval(char *cmdline)
 	
 	strcpy(buf, cmdline);
 	bg = parseline(buf, argv);
-	pipeline(argv, bg, NULL);
+	pipeline(argv, bg);
 	return;
 }
 
@@ -123,44 +124,39 @@ int parseline(char *buf, char **argv)
     return bg;
 }
 /* $end parseline */
-void pipeline(char** argv, int bg, char* pipe_in) {
+void pipeline(char** argv, int bg) {
 	char* new_argv[MAXARGS];
-	char pipe_out[MAXLINE];
-	int i, j, status;
-	int fd[2];
-	int fdp[2];
+	char* pipe_in[2];
+	int i, j, k, status, fd;
 	pid_t pid;
-	if (argv[0] == NULL) return;
+	if(argv[0] == NULL) return;
+	k = -1;
 	for(i=0;argv[i] != NULL && strcmp(argv[i], "|");i++)
 		new_argv[i] = strdup(argv[i]);
 	new_argv[i] = NULL;
 
-	while (!builtin_command(argv)) {
-		if(pipe(fd) < 0) exit(0);
-
+	while (!builtin_command(new_argv)) {
 		if ((pid = fork()) == 0) {
 			if(argv[i] != NULL && !strcmp(argv[i], "|")) {
-				close(fd[0]);
-				dup2(fd[1], 1);
+				if((fd = open("pipe_in.txt", O_CREAT|O_RDWR, 0755)) < 0) exit(0);
+				dup2(fd, 1);
 			}
-			if(pipe_in != NULL){
-				if(pipe(fdp) < 0) exit(0);
-				if(write(fdp[1], pipe_in, sizeof(pipe_in)) < 0) exit(0);
-				dup2(fdp[0], 0);
+			if(k >= 0){
+				new_argv[k] = strdup(pipe_in[0]);
+				new_argv[k+1] = strdup(pipe_in[1]);
+				free(pipe_in[0]);
+				free(pipe_in[1]);
+				new_argv[k+2] = NULL;
 			}
 			if (execv(new_argv[0], new_argv) < 0) {
-				scanf("%s", pipe_out);
-				printf(" => %s \n", pipe_out);
-				dup2(0, fdp[0]);
-				new_argv[0] = which_command(argv);
+				new_argv[0] = which_command(new_argv);
 				if(execv(new_argv[0], new_argv) < 0) {
 					fprintf(stderr,"%s: Command not found.\n", new_argv[0]);
 					exit(0);
 				}
-				
 			}
 		}
-		for(j=0;j<i;j++) free(new_argv[j]);
+		for(j=0;new_argv[j] != NULL;j++) free(new_argv[j]);
 		if((argv[i] == NULL && !bg) || argv[i] != NULL) {
 			if (waitpid(pid, &status, 0) < 0)
 				printf("waitfg: waitpid error");
@@ -168,12 +164,13 @@ void pipeline(char** argv, int bg, char* pipe_in) {
 			printf("background\n");
 		
 		if(argv[i] != NULL && !strcmp(argv[i], "|")) {
-			close(fd[1]);
-			if(read(fd[0], pipe_out, MAXLINE) < 0) exit(0);
 			for(j=i+1;argv[j] != NULL && strcmp(argv[j], "|");j++)
 				new_argv[j-i-1] = strdup(argv[j]);
 			new_argv[j-i-1] = NULL;
-			pipeline(new_argv, bg, pipe_out);
-		}
+			k = j-i-1;
+			i = j;
+			pipe_in[0] = strdup("<");
+			pipe_in[1] = strdup("pipe_in.txt");
+		} else break;
 	}
 }

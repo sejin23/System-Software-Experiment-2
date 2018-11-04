@@ -14,16 +14,25 @@ CC		= gcc
 CFLAGS 	= -g -O -Wall
 
 CSRCS	= swsh.c
-TARGET	= swsh
+TARGET	= swsh.o head.o cat.o cp.o tail.o
 OBJECTS	= $(CSRCS:.c=.o)
 
 all : $(TARGET)
 
-$(TARGET) : $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@
+head.o:
+	$(CC) -o head head.c
 
-.c.o:
-	$(CC) $(CFLAGS) -c $< -o $@
+cat.o:
+	$(CC) -o cat cat.c
+
+cp.o:
+	$(CC) -o cp cp.c
+
+tail.o:
+	$(CC) -o tail tail.c
+
+swsh.o:
+	$(CC) $(CFLAGS) -c swsh.c -o swsh
 
 clean:
 	rm -f $(OBJECTS) $(TARGET)
