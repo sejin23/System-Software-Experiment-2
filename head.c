@@ -2,14 +2,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 
 int main(int argc, char** argv) {
-    int line = 10;
+    int fd, line, bytes;
+    char* fname;
     if(!strcmp(argv[1], "-c")) {
-        printf("1\n");
+        fname = argv[3];
+        bytes = atoi(argv[2]);
+        line = -1;
+    } else if(!strcmp(argv[1], "-n")) {
+            fname = argv[3];
+            line = atoi(argv[2]);
     } else {
-        if(!strcmp(argv[1], "-n")) printf("2");
-        printf("3+2");
+            fname = argv[1];
+            line = 10;
     }
+    if((fd = open(fname, O_RDONLY)) < 0) exit(0);
+    printf("%d \n", line);
+    close(fd);
 }

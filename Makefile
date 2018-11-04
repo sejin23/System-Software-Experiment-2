@@ -32,7 +32,7 @@ tail.o:
 	$(CC) -o tail tail.c
 
 swsh.o:
-	$(CC) $(CFLAGS) -c swsh.c -o swsh
+	$(CC) -o swsh swsh.c
 
 clean:
 	rm -f $(OBJECTS) $(TARGET)

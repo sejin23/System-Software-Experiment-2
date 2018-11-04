@@ -126,27 +126,47 @@ int parseline(char *buf, char **argv)
 /* $end parseline */
 void pipeline(char** argv, int bg) {
 	char* new_argv[MAXARGS];
-	char* pipe_in[2];
-	int i, j, k, status, fd;
+	char* pipe_in = NULL;
+	char* pipe_out = NULL;
+	int i, j, status, app = 0;
+	int fin = 0, fout = 1;
+
 	pid_t pid;
 	if(argv[0] == NULL) return;
-	k = -1;
-	for(i=0;argv[i] != NULL && strcmp(argv[i], "|");i++)
+	for(i=0;argv[i] != NULL && strcmp(argv[i], "|");i++){
+		if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")){
+			j = i;
+			while(argv[j] != NULL){
+				if(!strcmp(argv[j], "<")) pipe_in = strdup(argv[j+1]);
+				else if(!strcmp(argv[j], ">")) pipe_out = strdup(argv[j+1]);
+				else if(!strcmp(argv[j], ">>")) {
+					pipe_out = strdup(argv[j+1]);
+					app = 1;
+				} else break;
+				j += 2;
+			}
+			break;
+		}
 		new_argv[i] = strdup(argv[i]);
+	}
 	new_argv[i] = NULL;
 
 	while (!builtin_command(new_argv)) {
 		if ((pid = fork()) == 0) {
 			if(argv[i] != NULL && !strcmp(argv[i], "|")) {
-				if((fd = open("pipe_in.txt", O_CREAT|O_RDWR, 0755)) < 0) exit(0);
-				dup2(fd, 1);
+				if((fout = open("pipe_in.txt", O_CREAT|O_RDWR|O_TRUNC, 0755)) < 0) exit(0);
+				dup2(fout, 1);
+			} else if(pipe_out != NULL) {
+				if(app) {
+					if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_APPEND, 0755)) < 0) exit(0);
+				} else {
+					if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_TRUNC, 0755)) < 0) exit(0);
+				}
+				dup2(fout, 1);
 			}
-			if(k >= 0){
-				new_argv[k] = strdup(pipe_in[0]);
-				new_argv[k+1] = strdup(pipe_in[1]);
-				free(pipe_in[0]);
-				free(pipe_in[1]);
-				new_argv[k+2] = NULL;
+			if(pipe_in != NULL) {
+				if((fin = open(pipe_in, O_RDONLY)) < 0) exit(0);
+				dup2(fin, 0);
 			}
 			if (execv(new_argv[0], new_argv) < 0) {
 				new_argv[0] = which_command(new_argv);
@@ -167,10 +187,13 @@ void pipeline(char** argv, int bg) {
 			for(j=i+1;argv[j] != NULL && strcmp(argv[j], "|");j++)
 				new_argv[j-i-1] = strdup(argv[j]);
 			new_argv[j-i-1] = NULL;
-			k = j-i-1;
 			i = j;
-			pipe_in[0] = strdup("<");
-			pipe_in[1] = strdup("pipe_in.txt");
+			if(pipe_in != NULL) free(pipe_in);
+			pipe_in = strdup("pipe_in.txt");
 		} else break;
 	}
+	if(pipe_in != NULL) free(pipe_in);
+	if(pipe_out != NULL) free(pipe_out);
+	if(fout != 1) close(fout);
+	if(fin != 0) close(fin);
 }
