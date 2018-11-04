@@ -128,30 +128,29 @@ void pipeline(char** argv, int bg) {
 	char* new_argv[MAXARGS];
 	char* pipe_in = NULL;
 	char* pipe_out = NULL;
-	int i, j, status, app = 0;
+	int i, j, k, status, app = 0;
 	int fin = 0, fout = 1;
 
 	pid_t pid;
 	if(argv[0] == NULL) return;
-	for(i=0;argv[i] != NULL && strcmp(argv[i], "|");i++){
-		if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")){
-			j = i;
-			while(argv[j] != NULL){
-				if(!strcmp(argv[j], "<")) pipe_in = strdup(argv[j+1]);
-				else if(!strcmp(argv[j], ">")) pipe_out = strdup(argv[j+1]);
-				else if(!strcmp(argv[j], ">>")) {
-					pipe_out = strdup(argv[j+1]);
-					app = 1;
-				} else break;
-				j += 2;
-			}
-			break;
+	i = 0;
+	while (1) {
+		for(k = 0;argv[i] != NULL && strcmp(argv[i], "|");i++){
+			if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")) break;
+			new_argv[k] = strdup(argv[i]);
+			k++;
 		}
-		new_argv[i] = strdup(argv[i]);
-	}
-	new_argv[i] = NULL;
-
-	while (!builtin_command(new_argv)) {
+		new_argv[k] = NULL;
+		while(argv[i] != NULL && strcmp(argv[i], "|")){
+			if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
+			else if(!strcmp(argv[i], ">")) pipe_out = strdup(argv[i+1]);
+			else if(!strcmp(argv[i], ">>")) {
+				pipe_out = strdup(argv[i+1]);
+				app = 1;
+			} else break;
+			i += 2;
+		}
+		if(builtin_command(new_argv)) return;
 		if ((pid = fork()) == 0) {
 			if(argv[i] != NULL && !strcmp(argv[i], "|")) {
 				if((fout = open("pipe_in.txt", O_CREAT|O_RDWR|O_TRUNC, 0755)) < 0) exit(0);
@@ -184,13 +183,10 @@ void pipeline(char** argv, int bg) {
 			printf("background\n");
 		
 		if(argv[i] != NULL && !strcmp(argv[i], "|")) {
-			for(j=i+1;argv[j] != NULL && strcmp(argv[j], "|");j++)
-				new_argv[j-i-1] = strdup(argv[j]);
-			new_argv[j-i-1] = NULL;
-			i = j;
 			if(pipe_in != NULL) free(pipe_in);
 			pipe_in = strdup("pipe_in.txt");
 		} else break;
+		i++;
 	}
 	if(pipe_in != NULL) free(pipe_in);
 	if(pipe_out != NULL) free(pipe_out);
