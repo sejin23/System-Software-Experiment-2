@@ -8,10 +8,15 @@
 // CSLab, Sungkyunkwan University
 //
 // Forked by http://csapp.cs.cmu.edu/public/ics2/code/ecf/shellex.c
+//
+// Student ID : 2014313299
+// Student Name : Park Sejin
+//
 //-----------------------------------------------------------
 
 
 /* $begin shellmain */
+#define MAXPATH	  64
 #define MAXARGS   128
 #define MAXLINE	  256
 #include <stdio.h>
@@ -25,26 +30,28 @@
 /* function prototypes */
 void eval(char *cmdline);
 char* which_command(char** argv);
+void changedir(char* argv);
 void pipeline(char** argv, int bg);
 int parseline(char *buf, char **argv);
 int builtin_command(char **argv); 
+char condir[MAXPATH];
 
 int main()
 {
-  char cmdline[MAXLINE]; /* Command line */
+	char cmdline[MAXLINE]; /* Command line */
 	char* ret;
-  while (1) {
+	getcwd(condir, MAXPATH);
+	while (1) {
 		/* Read */
 		printf("swsh> ");
 		ret = fgets(cmdline, MAXLINE, stdin);
 		if (feof(stdin) || ret == NULL)
-				exit(0);
+			exit(0);
 		/* Evaluate */
 		eval(cmdline);
-  } 
+	}
 }
 /* $end shellmain */
-  
 /* $begin eval */
 /* eval - Evaluate a command line */
 void eval(char *cmdline) 
@@ -52,7 +59,6 @@ void eval(char *cmdline)
 	char* argv[MAXARGS]; /* Argument list execve() */
 	char buf[MAXLINE];   /* Holds modified command line */
 	int bg;              /* Should the job run in bg or fg? */
-	
 	strcpy(buf, cmdline);
 	bg = parseline(buf, argv);
 	pipeline(argv, bg);
@@ -84,7 +90,7 @@ char* which_command(char** argv){
 int builtin_command(char **argv) 
 {
     if (!strcmp(argv[0], "quit")) /* quit command */
-			exit(0);  
+			exit(0);
     if (!strcmp(argv[0], "&"))    /* Ignore singleton & */
 			return 1;
     return 0;                     /* Not a builtin command */
@@ -128,10 +134,12 @@ void pipeline(char** argv, int bg) {
 	char* new_argv[MAXARGS];
 	char* pipe_in = NULL;
 	char* pipe_out = NULL;
-	int i, j, k, status, app = 0;
+	char pwdir[MAXPATH];
+	int i, j, k;
+	int status, app = 0;
 	int fin = 0, fout = 1;
-
 	pid_t pid;
+
 	if(argv[0] == NULL) return;
 	i = 0;
 	while (1) {
@@ -141,6 +149,9 @@ void pipeline(char** argv, int bg) {
 			k++;
 		}
 		new_argv[k] = NULL;
+		if(!strcmp(new_argv[0], "cd"))
+			changedir(new_argv[1]);
+
 		while(argv[i] != NULL && strcmp(argv[i], "|")){
 			if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
 			else if(!strcmp(argv[i], ">")) pipe_out = strdup(argv[i+1]);
@@ -192,4 +203,47 @@ void pipeline(char** argv, int bg) {
 	if(pipe_out != NULL) free(pipe_out);
 	if(fout != 1) close(fout);
 	if(fin != 0) close(fin);
+}
+
+void changedir(char* argv){
+	char* cd_argv[MAXARGS];
+	char* new_argv[MAXARGS];
+	char* ret;
+	char* rootdir = condir;
+	char cmdline[MAXLINE];
+	char dir[MAXPATH] = "swsh";
+	char pwdir[MAXPATH];
+	int bg, root, dirlen, i = 0;
+
+	getcwd(pwdir, MAXPATH);
+	pwdir[strlen(pwdir)+1] = '\0';
+	pwdir[strlen(pwdir)] = '/';
+	strcat(pwdir, argv);
+	if(chdir(pwdir) < 0) return;
+	memset(pwdir, 0, MAXPATH);
+	getcwd(pwdir, MAXPATH);
+
+	root = strcmp(rootdir, pwdir);
+	if(root > 0){
+		dirlen = strlen(pwdir);
+		for(i=0;rootdir[dirlen + i] != '\0';i++){
+			if(rootdir[dirlen + i] == '/') strcat(dir, "/..");
+		}
+	} else if(root < 0) {
+		dirlen = strlen(rootdir);
+		for(i=0;pwdir[dirlen + i] != '\0';i++){
+			dir[4+i] = pwdir[dirlen + i];
+		}
+		dir[4+i] = '\0';
+	}
+
+	while (1) {
+		printf("%s> ", dir);
+		ret = fgets(cmdline, MAXLINE, stdin);
+		if (feof(stdin) || ret == NULL)
+			exit(0);
+		//bg = parseline(cmdline, cd_argv);
+		//for(i=0;cd_argv[i] != NULL;i++) printf("%d : %s\n", i+1, cd_argv[i]);
+		eval(cmdline);
+	}
 }
