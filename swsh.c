@@ -16,7 +16,7 @@
 
 
 /* $begin shellmain */
-#define MAXPATH	  64
+#define MAXPATH	  100
 #define MAXARGS   128
 #define MAXLINE	  256
 #include <stdio.h>
@@ -67,23 +67,33 @@ void eval(char *cmdline)
 
 char* which_command(char** argv){
 	int fd[2];
-	char* str = "/usr/bin/which";
-	char* line = (char*)malloc(sizeof(char)*MAXLINE);
-	strcpy(line, argv[0]);
-
+	int status;
+	char* root = NULL;
+	if(strcmp(argv[0], "head") && strcmp(argv[0], "tail") && strcmp(argv[0], "cp") && strcmp(argv[0], "cat") && strcmp(argv[0], "rm") && strcmp(argv[0], "mv") && strcmp(argv[0], "pwd"))
+		root = strdup("/usr/bin/which");
+	else{
+		root = (char*)malloc(sizeof(char)*MAXLINE);
+		strcpy(root, condir);
+		strcat(root, "/");
+		strcat(root, argv[0]);
+		return root;
+	}
 	pid_t pid;
 	if(pipe(fd) < 0) exit(1);
 	if((pid = fork()) == 0){
 		close(fd[0]);
 		dup2(fd[1], 1);
-		execl(str, str, argv[0], NULL);
+		execl(root, root, argv[0], NULL);
 		exit(1);
 	} else {
+		if(waitpid(pid, &status, 0) < 0) printf("waitpid error\n");
+		if(root != NULL) free(root);
+		root = (char*)malloc(sizeof(char)*MAXLINE);
 		close(fd[1]);
-		if(read(fd[0], line, MAXLINE) < 0) exit(1);
-		if(line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
+		if(read(fd[0], root, MAXLINE) < 0) exit(1);
+		if(root[strlen(root)-1] == '\n') root[strlen(root)-1] = '\0';
 	}
-	return line;
+	return root;
 }
 
 /* If first arg is a builtin command, run it and return true */
@@ -143,14 +153,24 @@ void pipeline(char** argv, int bg) {
 	if(argv[0] == NULL) return;
 	i = 0;
 	while (1) {
+		bg = 0;
 		for(k = 0;argv[i] != NULL && strcmp(argv[i], "|");i++){
 			if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")) break;
 			new_argv[k] = strdup(argv[i]);
 			k++;
 		}
 		new_argv[k] = NULL;
-		if(!strcmp(new_argv[0], "cd"))
+		if(!strcmp(new_argv[0], "exit")){
+			printf("exit\n");
+			if(argv[1] == NULL) exit(0);
+			else exit(atoi(argv[1]));
+		}
+		if(!strcmp(new_argv[0], "cd")){
 			changedir(new_argv[1]);
+			i++;
+			if(argv[i-1] != NULL) continue;
+			else break;
+		}
 
 		while(argv[i] != NULL && strcmp(argv[i], "|")){
 			if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
@@ -161,12 +181,13 @@ void pipeline(char** argv, int bg) {
 			} else break;
 			i += 2;
 		}
+
 		if(builtin_command(new_argv)) return;
 		if ((pid = fork()) == 0) {
-			if(argv[i] != NULL && !strcmp(argv[i], "|")) {
+			if(argv[i] != NULL && !strcmp(argv[i],"|")){
 				if((fout = open("pipe_in.txt", O_CREAT|O_RDWR|O_TRUNC, 0755)) < 0) exit(0);
 				dup2(fout, 1);
-			} else if(pipe_out != NULL) {
+			}else if(pipe_out != NULL){
 				if(app) {
 					if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_APPEND, 0755)) < 0) exit(0);
 				} else {
@@ -192,11 +213,12 @@ void pipeline(char** argv, int bg) {
 				printf("waitfg: waitpid error");
 		} else if(bg)
 			printf("background\n");
-		
-		if(argv[i] != NULL && !strcmp(argv[i], "|")) {
+
+		if(argv[i] == NULL) break;
+		if(!strcmp(argv[i], "|")){
 			if(pipe_in != NULL) free(pipe_in);
 			pipe_in = strdup("pipe_in.txt");
-		} else break;
+		}
 		i++;
 	}
 	if(pipe_in != NULL) free(pipe_in);
@@ -206,44 +228,10 @@ void pipeline(char** argv, int bg) {
 }
 
 void changedir(char* argv){
-	char* cd_argv[MAXARGS];
-	char* new_argv[MAXARGS];
-	char* ret;
-	char* rootdir = condir;
-	char cmdline[MAXLINE];
-	char dir[MAXPATH] = "swsh";
 	char pwdir[MAXPATH];
-	int bg, root, dirlen, i = 0;
-
 	getcwd(pwdir, MAXPATH);
 	pwdir[strlen(pwdir)+1] = '\0';
 	pwdir[strlen(pwdir)] = '/';
 	strcat(pwdir, argv);
 	if(chdir(pwdir) < 0) return;
-	memset(pwdir, 0, MAXPATH);
-	getcwd(pwdir, MAXPATH);
-
-	root = strcmp(rootdir, pwdir);
-	if(root > 0){
-		dirlen = strlen(pwdir);
-		for(i=0;rootdir[dirlen + i] != '\0';i++){
-			if(rootdir[dirlen + i] == '/') strcat(dir, "/..");
-		}
-	} else if(root < 0) {
-		dirlen = strlen(rootdir);
-		for(i=0;pwdir[dirlen + i] != '\0';i++){
-			dir[4+i] = pwdir[dirlen + i];
-		}
-		dir[4+i] = '\0';
-	}
-
-	while (1) {
-		printf("%s> ", dir);
-		ret = fgets(cmdline, MAXLINE, stdin);
-		if (feof(stdin) || ret == NULL)
-			exit(0);
-		//bg = parseline(cmdline, cd_argv);
-		//for(i=0;cd_argv[i] != NULL;i++) printf("%d : %s\n", i+1, cd_argv[i]);
-		eval(cmdline);
-	}
 }

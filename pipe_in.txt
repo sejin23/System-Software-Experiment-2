@@ -1,0 +1,24 @@
+total 160
+drwxrwxr-x 4 sejin sejin  4096 Nov  7 04:00 .
+drwxrwxr-x 4 sejin sejin  4096 Nov  7 03:44 ..
+-rwxrwxr-x 1 sejin sejin  8864 Nov  7 04:00 cat
+-rw-rw-r-- 1 sejin sejin   393 Nov  5 07:40 cat.c
+-rwxrwxr-x 1 sejin sejin  8864 Nov  7 04:00 cp
+-rw-rw-r-- 1 sejin sejin   496 Nov  5 07:40 cp.c
+drwxrwxr-x 8 sejin sejin  4096 Nov  5 17:55 .git
+-rwxrwxr-x 1 sejin sejin  8968 Nov  7 04:00 head
+-rw-rw-r-- 1 sejin sejin   610 Nov  7 03:03 head.c
+-rw-rw-r-- 1 sejin sejin   652 Nov  7 03:50 Makefile
+-rwxrwxr-x 1 sejin sejin  8872 Nov  7 04:00 mv
+-rw-rw-r-- 1 sejin sejin   439 Nov  7 03:45 mv.c
+-rwxr-xr-x 1 sejin sejin     0 Nov  7 04:00 pipe_in.txt
+-rwxrwxr-x 1 sejin sejin  8712 Nov  7 04:00 pwd
+-rw-rw-r-- 1 sejin sejin   206 Nov  7 03:54 pwd.c
+-rw-rw-r-- 1 sejin sejin    57 Nov  5 03:03 README.md
+-rwxrwxr-x 1 sejin sejin  8872 Nov  7 04:00 rm
+-rw-rw-r-- 1 sejin sejin   386 Nov  7 03:29 rm.c
+drwxrwxr-x 2 sejin sejin  4096 Nov  7 03:06 sejin
+-rwxrwxr-x 1 sejin sejin 14344 Nov  7 04:00 swsh
+-rw-rw-r-- 1 sejin sejin  6067 Nov  7 04:00 swsh.c
+-rwxrwxr-x 1 sejin sejin  9024 Nov  7 04:00 tail
+-rw-rw-r-- 1 sejin sejin   821 Nov  5 07:46 tail.c
