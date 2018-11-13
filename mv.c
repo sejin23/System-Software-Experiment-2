@@ -15,6 +15,6 @@ int main(int argc, char** argv){
     strcat(condir, argv[1]);
     strcat(pwdir, argv[2]);
     
-    rename(condir, pwdir);
+    if(rename(condir, pwdir) < 0) perror("mv");
     return 0;
 }

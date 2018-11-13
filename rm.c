@@ -12,7 +12,7 @@ int main(int argc, char** argv){
 	condir[strlen(condir)] = '/';
     strcat(condir, argv[1]);
     
-    if(unlink(condir) < 0) printf("delete error\n");
-
+    if(unlink(condir) < 0) perror("rm");
+    
     return 0;
 }
