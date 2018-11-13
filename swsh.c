@@ -36,6 +36,7 @@ void pipeline(char** argv, int bg);
 int parseline(char *buf, char **argv);
 int builtin_command(char **argv);
 void handler(int sig);
+void ignore(int sig);
 char condir[MAXPATH];
 pid_t masterpid;
 
@@ -44,9 +45,9 @@ int main(){
 	char* ret;
 	getcwd(condir, MAXPATH);
 	masterpid = getpid();
-	signal(SIGINT, SIG_IGN);
-	signal(SIGSTP, SIG_IGN);
-	//signal(SIGCHLD, handler);
+	signal(SIGINT, ignore);
+	signal(SIGTSTP, ignore);
+	signal(SIGCHLD, handler);
 	while (1) {
 		/* Read */
 		printf("swsh> ");
@@ -199,6 +200,11 @@ void pipeline(char** argv, int bg) {
 		}
 		for(k=0;new_argv[k] != NULL;k++){
 			if(new_argv[k][0] == '\''){
+				if(new_argv[k][strlen(new_argv[k])-1] == '\''){
+					j = 0;
+					temp = strdup(new_argv[k]);
+					break;
+				}
 				temp = (char*)malloc(sizeof(char)*MAXLINE);
 				strcpy(temp, new_argv[k]);
 				for(j=k+1;new_argv[j][strlen(new_argv[j])-1] != '\'';j++)
@@ -206,6 +212,11 @@ void pipeline(char** argv, int bg) {
 				sprintf(temp, "%s %s", temp, new_argv[j]);
 				break;
 			}else if(new_argv[k][0] == '\"'){
+				if(new_argv[k][strlen(new_argv[k])-1] == '\"'){
+					j = 0;
+					temp = strdup(new_argv[k]);
+					break;
+				}
 				temp = (char*)malloc(sizeof(char)*MAXLINE);
 				strcpy(temp, new_argv[k]);
 				for(j=k+1;new_argv[j][strlen(new_argv[j])-1] != '\"';j++)
@@ -219,13 +230,16 @@ void pipeline(char** argv, int bg) {
 				temp[t-1] = temp[t];
 			temp[t-2] = '\0';
 			new_argv[k] = temp;
-			for(t=1;new_argv[t+j]!=NULL;t++){
-				strcpy(new_argv[t+k], new_argv[t+j]);
-				new_argv[t+j] = NULL;
+			if(j > 0){
+				for(t=1;new_argv[t+j]!=NULL;t++){
+					strcpy(new_argv[t+k], new_argv[t+j]);
+					new_argv[t+j] = NULL;
+				}
+				new_argv[t+k] = NULL;
 			}
-			new_argv[t+k] = NULL;
 			temp = NULL;
 		}
+		
 		while(argv[i] != NULL && strcmp(argv[i], "|")){
 			if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
 			else if(!strcmp(argv[i], ">")) pipe_out = strdup(argv[i+1]);
@@ -235,10 +249,6 @@ void pipeline(char** argv, int bg) {
 			} else break;
 			i += 2;
 		}
-		for(t=0;new_argv[t]!=NULL;t++){
-			printf("%d : %s\n", t+1, new_argv[t]);
-		}
-		//printf("parent pid : [%d], ppid : [%d], pgid : [%d]\n", getpid(), getppid(), getpgrp());
 		if(builtin_command(new_argv)) return;
 		if ((pid = fork()) == 0){
 			if(masterpid == getppid()) setpgrp();
@@ -316,5 +326,15 @@ void handler(int sig){
 	pid_t pid;
 	int status;
 	while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0);
-	return;
+	if(WIFSTOPPED(status)){
+		while((pid = waitpid(0, &status, WNOHANG)) > 0);
+	}
+}
+
+void ignore(int sig){
+	char conexe[MAXPATH];
+	printf("\n");
+	sprintf(conexe, "%s/", condir);
+	strcat(conexe, "swsh");
+	execl(conexe, conexe, NULL);
 }
