@@ -37,19 +37,21 @@ void pipeline(char** argv, int bg);
 int parseline(char *buf, char **argv);
 int builtin_command(char **argv);
 void binding(char** argv);
-void handler(int sig);
+void phandler_int(int sig);
+void chandler_int(int sig);
+void chandler_stp(int sig);
 void ignore(int sig);
 char condir[MAXPATH];
 pid_t masterpid;
-
+pid_t chdpid, mstpid;
 int main(){
 	char cmdline[MAXLINE]; /* Command line */
 	char* ret;
 	getcwd(condir, MAXPATH);
+	mstpid = 0;
 	masterpid = getpid();
-	//signal(SIGINT, ignore);
-	//signal(SIGTSTP, ignore);
-	//signal(SIGCHLD, handler);
+	signal(SIGINT, phandler_int);
+	signal(SIGTSTP, phandler_int);
 	while (1) {
 		/* Read */
 		printf("swsh> ");
@@ -63,8 +65,7 @@ int main(){
 /* $end shellmain */
 /* $begin eval */
 /* eval - Evaluate a command line */
-void eval(char *cmdline) 
-{
+void eval(char *cmdline){
 	char* argv[MAXARGS]; /* Argument list execve() */
 	char buf[MAXLINE];   /* Holds modified command line */
 	int bg;              /* Should the job run in bg or fg? */
@@ -95,7 +96,7 @@ char* which_command(char** argv){
 		execl(root, root, argv[0], NULL);
 		exit(1);
 	} else {
-		if(waitpid(pid, &status, 0) < 0) printf("waitpid error\n");
+		if(waitpid(pid, &status, 0) < 0) write(2, "waitpid error\n", strlen("waitpid error\n"));
 		if(root != NULL) free(root);
 		root = (char*)malloc(sizeof(char)*MAXLINE);
 		close(fd[1]);
@@ -144,6 +145,7 @@ int parseline(char *buf, char **argv)
 }
 /* $end parseline */
 void pipeline(char** argv, int bg) {
+	pid_t pid;
 	char* new_argv[MAXARGS];
 	char* pipe_in = NULL;
 	char* pipe_out = NULL;
@@ -152,177 +154,89 @@ void pipeline(char** argv, int bg) {
 	int i, j, k, t;
 	int status, app = 0, pip = 0;
 	int fin = 0, fout = 1;
-	pid_t pid, mstpid;
 	if(argv[0] == NULL) return;
 	if(builtin_command(argv)) return;
 	for(i=0;argv[i]!=NULL;i++){
 		if(!strcmp(argv[i], "|")) pip = 1;
 	}
-	if(pip == 1){
-		if((mstpid = fork()) == 0){
-			setpgrp();
-			printf("child1 pid : [%d], ppid : [%d], pgid : [%d]\n", getpid(), getppid(), getpgrp());
-			i = 0;
-			while(1) {
-				if(argv[i] == NULL) break;
-				for(k = 0;argv[i] != NULL && strcmp(argv[i], "|");i++){
-					if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")) break;
-					new_argv[k] = strdup(argv[i]);
-					k++;
-				}
-				new_argv[k] = NULL;
-				binding(new_argv);
+	if((mstpid = fork()) == 0){
+		setpgrp();
+		signal(SIGINT, chandler_int);
+		signal(SIGTSTP, chandler_stp);
+		i = 0;
+		while(1) {
+			if(argv[i] == NULL) break;
+			for(k = 0;argv[i] != NULL && strcmp(argv[i], "|");i++){
+				if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")) break;
+				new_argv[k] = strdup(argv[i]);
+				k++;
+			}
+			new_argv[k] = NULL;
+			binding(new_argv);
 
-				while(argv[i] != NULL && strcmp(argv[i], "|")){
-					if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
-					else if(!strcmp(argv[i], ">")) pipe_out = strdup(argv[i+1]);
-					else if(!strcmp(argv[i], ">>")) {
-						pipe_out = strdup(argv[i+1]);
-						app = 1;
-					} else break;
-					i += 2;
-				}
-				if(!strcmp(new_argv[0], "cd") || !strcmp(new_argv[0], "exit")){
-					i++;
-					continue;
-				}
-				if ((pid = fork()) == 0){
-					if(masterpid == getppid()) setpgrp();
-					printf("child2 pid : [%d], ppid : [%d], pgid : [%d]\n", getpid(), getppid(), getpgrp());
-					if(argv[i] != NULL && !strcmp(argv[i],"|")){
-						if((fout = open("pipe_in.txt", O_CREAT|O_RDWR|O_TRUNC, 0755)) < 0) exit(0);
-						dup2(fout, 1);
-					}else if(pipe_out != NULL){
-						if(app) {
-							if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_APPEND, 0755)) < 0) exit(0);
-						} else {
-							if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_TRUNC, 0755)) < 0) exit(0);
-						}
-						dup2(fout, 1);
-					}
-					if(pipe_in != NULL) {
-						if((fin = open(pipe_in, O_RDONLY)) < 0) exit(0);
-						dup2(fin, 0);
-					}
-					if (execv(new_argv[0], new_argv) < 0) {
-						temp = (char*)malloc(sizeof(char)*strlen(new_argv[0])+1);
-						strcpy(temp, new_argv[0]);
-						new_argv[0] = which_command(new_argv);
-						if(execv(new_argv[0], new_argv) < 0) {
-							fprintf(stderr,"%s: Command not found.\n", temp);
-							free(temp);
-							exit(0);
-						}
-					}
-				}
-				if((argv[i] == NULL && !bg) || argv[i] != NULL) {
-					if (waitpid(pid, &status, 0) < 0)
-						printf("waitfg: waitpid error");
-				} else if(bg)
-					printf("[%d] %s\n", pid, new_argv[0]);
-
-				for(j=0;new_argv[j] != NULL;j++) free(new_argv[j]);
-				if(argv[i] == NULL) break;
-				if(!strcmp(argv[i], "|")){
-					if(pipe_in != NULL) free(pipe_in);
-					pipe_in = strdup("pipe_in.txt");
-				}
+			while(argv[i] != NULL && strcmp(argv[i], "|")){
+				if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
+				else if(!strcmp(argv[i], ">")) pipe_out = strdup(argv[i+1]);
+				else if(!strcmp(argv[i], ">>")) {
+					pipe_out = strdup(argv[i+1]);
+					app = 1;
+				} else break;
+				i += 2;
+			}
+			if(!strcmp(new_argv[0], "cd") || !strcmp(new_argv[0], "exit")){
 				i++;
+				continue;
 			}
-			if(pipe_in != NULL) free(pipe_in);
-			if(pipe_out != NULL) free(pipe_out);
-			if(fout != 1) close(fout);
-			if(fin != 0) close(fin);
-			exit(0);
-		}else{
-			printf("parent pid : [%d], ppid : [%d], pgid : [%d]\n", getpid(), getppid(), getpgrp());
-			pid = waitpid(mstpid, &status, WUNTRACED);
-		}
-	}else{
-		if(!strcmp(argv[0], "exit")){
-			if(bg){
-				if((pid = fork()) == 0){
-					setpgrp();
-					if(argv[1] == NULL){
-						printf("exit\n");
-						exit(0);
-					}else{
-						printf("exit [%d]\n", atoi(argv[1]));
-						exit(atoi(argv[1]));
+			if ((chdpid = fork()) == 0){
+				signal(SIGINT, SIG_DFL);
+				signal(SIGTSTP, SIG_DFL);
+				if(argv[i] != NULL && !strcmp(argv[i],"|")){
+					if((fout = open("pipe_in.txt", O_CREAT|O_RDWR|O_TRUNC, 0755)) < 0) exit(0);
+					dup2(fout, 1);
+				}else if(pipe_out != NULL){
+					if(app) {
+						if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_APPEND, 0755)) < 0) exit(0);
+					} else {
+						if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_TRUNC, 0755)) < 0) exit(0);
 					}
-				}else printf("[%d] %s\n", pid, argv[0]);
-				return;
-			}else{
-				if(argv[1] == NULL){
-					printf("exit\n");
-					exit(0);
-				}else{
-					printf("exit [%d]\n", atoi(argv[1]));
-					exit(atoi(argv[1]));
+					dup2(fout, 1);
+				}
+				if(pipe_in != NULL) {
+					if((fin = open(pipe_in, O_RDONLY)) < 0) exit(0);
+					dup2(fin, 0);
+				}
+				if (execv(new_argv[0], new_argv) < 0) {
+					temp = (char*)malloc(sizeof(char)*strlen(new_argv[0])+1);
+					strcpy(temp, new_argv[0]);
+					new_argv[0] = which_command(new_argv);
+					if(execv(new_argv[0], new_argv) < 0) {
+						fprintf(stderr,"%s: Command not found.\n", temp);
+						free(temp);
+						exit(0);
+					}
 				}
 			}
-		}
-		if(!strcmp(argv[0], "cd")){
-			if(bg){
-				if((pid = fork()) == 0){
-					changedir(argv[1]);
-					exit(0);
-				}else printf("[%d] %s\n", pid, argv[0]);
-				return;
-			}else{
-				changedir(argv[1]);
-				return;
-			}
-		}
-		for(i=0;argv[i]!=NULL;i++){
-			if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")) break;
-			else new_argv[i] = strdup(argv[i]);
-		}
-		new_argv[i] = NULL;
-		for(j=i;argv[j]!=NULL;j++){
-			if(!strcmp(argv[j], "<")) pipe_in = strdup(argv[j+1]);
-			else if(!strcmp(argv[j], ">")) pipe_out = strdup(argv[j+1]);
-			else if(!strcmp(argv[j], ">>")){
-				pipe_out = strdup(argv[j+1]);
-				app = 1;
-			}
-			j++;
-		}
-		binding(new_argv);
-		for(j=0;new_argv[j]!=NULL;j++) printf("%d : %s\n", j+1, new_argv[j]);
-		if((pid = fork()) == 0){
-			if(pipe_out != NULL){
-				if(app) {
-					if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_APPEND, 0755)) < 0) exit(0);
-				} else {
-					if((fout = open(pipe_out, O_CREAT|O_WRONLY|O_TRUNC, 0755)) < 0) exit(0);
-				}
-				dup2(fout, 1);
-			}
-			if(pipe_in != NULL) {
-				if((fin = open(pipe_in, O_RDONLY)) < 0) exit(0);
-				dup2(fin, 0);
-			}
-			if (execv(new_argv[0], new_argv) < 0) {
-				temp = (char*)malloc(sizeof(char)*strlen(new_argv[0])+1);
-				strcpy(temp, new_argv[0]);
-				new_argv[0] = which_command(new_argv);
-				if(execv(new_argv[0], new_argv) < 0) {
-					fprintf(stderr,"%s: Command not found.\n", temp);
-					free(temp);
-					exit(0);
-				}
-			}
-		}else{
-			if(!bg){
-				if (waitpid(pid, &status, 0) < 0) printf("waitfg: waitpid error");
-			}else printf("[%d] %s\n", pid, new_argv[0]);
+			if((argv[i] == NULL && !bg) || argv[i] != NULL) {
+				if (waitpid(chdpid, &status, 0) < 0) write(1, "waitfd: waitpid error", strlen("waitfd: waitpid error"));
+			} else if(bg)
+				printf("[%d] %s\n", chdpid, new_argv[0]);
+
 			for(j=0;new_argv[j] != NULL;j++) free(new_argv[j]);
-			if(pipe_in != NULL) free(pipe_in);
-			if(pipe_out != NULL) free(pipe_out);
-			if(fout != 1) close(fout);
-			if(fin != 0) close(fin);
+			if(argv[i] == NULL) break;
+			if(!strcmp(argv[i], "|")){
+				if(pipe_in != NULL) free(pipe_in);
+				pipe_in = strdup("pipe_in.txt");
+			}
+			i++;
 		}
+		if(pipe_in != NULL) free(pipe_in);
+		if(pipe_out != NULL) free(pipe_out);
+		if(fout != 1) close(fout);
+		if(fin != 0) close(fin);
+		exit(0);
+	}else{
+		while(waitpid(mstpid, &status, 0) > 0);
+		mstpid = 0;
 	}
 }
 
@@ -395,19 +309,25 @@ void binding(char** argv){
 	}
 }
 
-void handler(int sig){
-	pid_t pid;
-	int status;
-	while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0);
-	if(WIFSTOPPED(status)){
-		while((pid = waitpid(0, &status, WNOHANG)) > 0);
-	}
+void phandler_int(int sig){
+	if(mstpid == 0)
+		write(1, "\nswsh> ", strlen("\nswsh> "));
+	else
+		kill(-1*mstpid, SIGINT);
 }
 
-void ignore(int sig){
-	char conexe[MAXPATH];
-	printf("\n");
-	sprintf(conexe, "%s/", condir);
-	strcat(conexe, "swsh");
-	execl(conexe, conexe, NULL);
+void chandler_int(int sig){
+	pid_t pid;
+	int status;
+	while((pid = waitpid(0, &status, WNOHANG | WUNTRACED)) > 0);
+	exit(0);
+}
+
+void chandler_stp(int sig){
+	pid_t pid;
+	int status;
+	pid = waitpid(0, &status, WUNTRACED);
+	kill(pid, SIGINT);
+	while(waitpid(pid, &status, WNOHANG));
+	exit(0);
 }

@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
     if(!strcmp(argv[1], "-n")) {
             fname = argv[3];
             line = atoi(argv[2]);
+            //if()
     } else {
             fname = argv[1];
             line = 10;
