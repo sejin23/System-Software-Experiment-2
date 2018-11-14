@@ -6,6 +6,7 @@
 int main(int argc, char** argv){
     char pwdir[MAXPATH];
     getcwd(pwdir, MAXPATH);
-    printf("%s\n", pwdir);
+    write(1, pwdir, strlen(pwdir));
+    write(1, "\n", strlen("\n"));
     return 0;
 }

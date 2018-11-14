@@ -33,6 +33,7 @@ int main(int argc, char** argv) {
                     if(word == '\n') break;
                 }
             }
+            close(fd);
             fname = argv[st];
             st++;
         }
@@ -41,7 +42,7 @@ int main(int argc, char** argv) {
         for(i=0;i<line;i++){
             while(1){
                 if(read(fd, &word, 1) == 0) return 0;
-                printf("%c", word);
+                write(1, &word, sizeof(char));
                 if(word == '\n') break;
             }
         }

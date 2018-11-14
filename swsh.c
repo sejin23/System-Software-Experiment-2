@@ -83,11 +83,11 @@ char* which_command(char** argv){
 	int fd[2];
 	int status;
 	char* root = NULL;
-	if(strcmp(argv[0], "head") && strcmp(argv[0], "tail") && strcmp(argv[0], "cp") && strcmp(argv[0], "cat") && strcmp(argv[0], "rm") && strcmp(argv[0], "mv") && strcmp(argv[0], "pwd"))
+	if(strcmp(argv[0], "head") && strcmp(argv[0], "tail") && strcmp(argv[0], "cp") && strcmp(argv[0], "cat") && strcmp(argv[0], "rm") && strcmp(argv[0], "mv") && strcmp(argv[0], "pwd") && strcmp(argv[0], "man"))
 		root = strdup("/usr/bin/which");
 	else{
 		root = (char*)malloc(sizeof(char)*MAXLINE);
-		strcpy(root, condir);	//
+		strcpy(root, condir);
 		strcat(root, "/");
 		strcat(root, argv[0]);
 		return root;
@@ -163,9 +163,10 @@ void pipeline(char** argv, int bg) {
 	char* pipe_in = NULL;
 	char* pipe_out = NULL;
 	char* temp;
+	char buf[MAXARGS];
 	char pwdir[MAXPATH];
 	int i, j, k, t;
-	int status, app, chd = 0, ext = 0, pip = 0;
+	int status, app, chd = 0, ext = 0, pip = 0, man = 0;
 	int fin = 0, fout = 1;
 	if(argv[0] == NULL) return;
 	if(builtin_command(argv)) return;
@@ -173,6 +174,7 @@ void pipeline(char** argv, int bg) {
 		if(!strcmp(argv[i], "|")) pip = 1;
 		else if(!strcmp(argv[i], "cd")) chd = 1;
 		else if(!strcmp(argv[i], "exit")) ext = 1;
+		else if(!strcmp(argv[i], "man")) man = 1;
 	}
 	if(!pip){
 		if(chd == 1){
@@ -207,7 +209,7 @@ void pipeline(char** argv, int bg) {
 		}
 	}
 	if((mstpid = fork()) == 0){
-		setpgrp();
+		if(!man) setpgrp();
 		signal(SIGINT, chandler_int);
 		signal(SIGTSTP, chandler_stp);
 		i = 0;
@@ -263,8 +265,10 @@ void pipeline(char** argv, int bg) {
 			}
 			if((argv[i] == NULL && !bg) || argv[i] != NULL) {
 				if (waitpid(chdpid, &status, 0) < 0) write(1, "waitfd: waitpid error", strlen("waitfd: waitpid error"));
-			} else if(bg) printf("[1] %d\n", chdpid);
-
+			} else if(bg){
+				sprintf(buf, "[1] %d\n", chdpid);
+				write(1, buf, strlen(buf));
+			}
 			for(j=0;new_argv[j] != NULL;j++) free(new_argv[j]);
 			if(argv[i] == NULL) break;
 			if(!strcmp(argv[i], "|")){
