@@ -21,14 +21,14 @@ int main(int argc, char** argv){
     lseek(fd, -1, SEEK_END);
     for(i=0;i<line;i++){
         while(n = read(fd, &word, 1)){
-            if(word == '\n') break;
             lseek(fd, -2, SEEK_CUR);
+            if(word == '\n') break;
         }
     }
-    lseek(fd, 1, SEEK_CUR);
+    lseek(fd, 2, SEEK_CUR);
     memset(buf, 0, MAXLINE);
     while(n = read(fd, buf, MAXLINE)){
-        printf("%s", buf);
+        write(1, buf, n);
         if(n < MAXLINE) break;
     }
     close(fd);

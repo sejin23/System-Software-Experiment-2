@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #define MAXPATH 100
 
 int main(int argc, char** argv){
@@ -12,7 +13,9 @@ int main(int argc, char** argv){
 	condir[strlen(condir)] = '/';
     strcat(condir, argv[1]);
     
-    if(unlink(condir) < 0) perror("rm");
-    
+    if(unlink(condir) < 0){
+        if(errno == EACCES || errno == EISDIR || errno == ENOENT || errno == ENOTDIR || errno == EPERM) perror("rm");
+        else printf("rm: Error occurred: <%d>\n",errno);
+    }
     return 0;
 }
