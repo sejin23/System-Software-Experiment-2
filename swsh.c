@@ -44,14 +44,18 @@ void ignore(int sig);
 char condir[MAXPATH];
 pid_t masterpid;
 pid_t chdpid, mstpid;
-int main(){
+int main(int argc, char** argv){
+	int i;
 	char cmdline[MAXLINE]; /* Command line */
 	char* ret;
-	getcwd(condir, MAXPATH);
+	char* buf = strtok(argv[0], "/swsh");
+	realpath(buf, condir);
+	i = open("pipe_in.txt", O_CREAT, 0755);
 	mstpid = 0;
 	masterpid = getpid();
 	signal(SIGINT, phandler_int);
 	signal(SIGTSTP, phandler_int);
+	close(i);
 	while (1) {
 		/* Read */
 		printf("swsh> ");
@@ -83,7 +87,7 @@ char* which_command(char** argv){
 		root = strdup("/usr/bin/which");
 	else{
 		root = (char*)malloc(sizeof(char)*MAXLINE);
-		strcpy(root, condir);
+		strcpy(root, condir);	//
 		strcat(root, "/");
 		strcat(root, argv[0]);
 		return root;
@@ -108,8 +112,18 @@ char* which_command(char** argv){
 
 /* If first arg is a builtin command, run it and return true */
 int builtin_command(char **argv){
-    if (!strcmp(argv[0], "quit")) /* quit command */
+	pid_t pid;
+	char buf[MAXARGS];
+	int status;
+    if (!strcmp(argv[0], "quit")){ /* quit command */
+		if((pid = fork()) == 0){
+			strcpy(buf, condir);
+			strcat(buf, "/pipe_in.txt");
+			signal(SIGSYS, SIG_IGN);
+			if(execl("/bin/rm", "/bin/rm", buf, NULL) < 0) exit(0);
+		}else waitpid(pid, &status, 0);
 		exit(0);
+	}
     if (!strcmp(argv[0], "&"))    /* Ignore singleton & */
 		return 1;
     return 0;                     /* Not a builtin command */
@@ -118,8 +132,7 @@ int builtin_command(char **argv){
 
 /* $begin parseline */
 /* parseline - Parse the command line and build the argv array */
-int parseline(char *buf, char **argv) 
-{
+int parseline(char *buf, char **argv){
     char *delim;         /* Points to first space delimiter */
     int argc;            /* Number of args */
     int bg;              /* Background job? */
@@ -152,12 +165,46 @@ void pipeline(char** argv, int bg) {
 	char* temp;
 	char pwdir[MAXPATH];
 	int i, j, k, t;
-	int status, app = 0, pip = 0;
+	int status, app, chd = 0, ext = 0, pip = 0;
 	int fin = 0, fout = 1;
 	if(argv[0] == NULL) return;
 	if(builtin_command(argv)) return;
 	for(i=0;argv[i]!=NULL;i++){
 		if(!strcmp(argv[i], "|")) pip = 1;
+		else if(!strcmp(argv[i], "cd")) chd = 1;
+		else if(!strcmp(argv[i], "exit")) ext = 1;
+	}
+	if(!pip){
+		if(chd == 1){
+			if(bg){
+				if((pid = fork()) == 0){
+					setpgrp();
+					for(i=0;strcmp(argv[i], "cd");i++);
+					changedir(argv[i+1]);
+					exit(0);
+				}else write(1, "[1] cd\n", strlen("[1] cd\n"));
+			}else{
+				for(i=0;strcmp(argv[i], "cd");i++);
+				changedir(argv[i+1]);
+				return;
+			}
+		}
+		if(ext == 1){
+			if(bg){
+				if((pid = fork()) == 0){
+					setpgrp();
+					for(i=0;strcmp(argv[i], "exit");i++);
+					write(1, "exit\n", strlen("exit\n"));
+					if(argv[i+1] != NULL) exit(atoi(argv[i+1]));
+					else exit(0);
+				}
+			}else{
+				write(1, "exit\n", strlen("exit\n"));
+				for(i=0;strcmp(argv[i], "exit");i++);
+				if(argv[i+1] != NULL) exit(atoi(argv[i+1]));
+				else exit(0);
+			}
+		}
 	}
 	if((mstpid = fork()) == 0){
 		setpgrp();
@@ -166,14 +213,13 @@ void pipeline(char** argv, int bg) {
 		i = 0;
 		while(1) {
 			if(argv[i] == NULL) break;
-			for(k = 0;argv[i] != NULL && strcmp(argv[i], "|");i++){
+			for(k = 0;argv[i] != NULL && strcmp(argv[i], "|");i++,k++){
 				if(!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>")) break;
 				new_argv[k] = strdup(argv[i]);
-				k++;
 			}
 			new_argv[k] = NULL;
 			binding(new_argv);
-
+			app = 0;
 			while(argv[i] != NULL && strcmp(argv[i], "|")){
 				if(!strcmp(argv[i], "<")) pipe_in = strdup(argv[i+1]);
 				else if(!strcmp(argv[i], ">")) pipe_out = strdup(argv[i+1]);
@@ -205,9 +251,8 @@ void pipeline(char** argv, int bg) {
 					if((fin = open(pipe_in, O_RDONLY)) < 0) exit(0);
 					dup2(fin, 0);
 				}
-				if (execv(new_argv[0], new_argv) < 0) {
-					temp = (char*)malloc(sizeof(char)*strlen(new_argv[0])+1);
-					strcpy(temp, new_argv[0]);
+				if(execv(new_argv[0], new_argv) < 0) {
+					temp = strdup(new_argv[0]);
 					new_argv[0] = which_command(new_argv);
 					if(execv(new_argv[0], new_argv) < 0) {
 						fprintf(stderr,"%s: Command not found.\n", temp);
@@ -218,8 +263,7 @@ void pipeline(char** argv, int bg) {
 			}
 			if((argv[i] == NULL && !bg) || argv[i] != NULL) {
 				if (waitpid(chdpid, &status, 0) < 0) write(1, "waitfd: waitpid error", strlen("waitfd: waitpid error"));
-			} else if(bg)
-				printf("[%d] %s\n", chdpid, new_argv[0]);
+			} else if(bg) printf("[1] %d\n", chdpid);
 
 			for(j=0;new_argv[j] != NULL;j++) free(new_argv[j]);
 			if(argv[i] == NULL) break;
@@ -238,6 +282,7 @@ void pipeline(char** argv, int bg) {
 		while(waitpid(mstpid, &status, 0) > 0);
 		mstpid = 0;
 	}
+	
 }
 
 void changedir(char* argv){
