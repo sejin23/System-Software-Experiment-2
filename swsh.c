@@ -281,7 +281,7 @@ void pipeline(char **argv, int bg)
 			if (pip > 0 && conn < pip)
 			{
 				if (pipe(fd[conn]) < 0)
-					printf("pipe error\n");
+					write(1, "pipe error\n", strlen("pipe error\n"));
 			}
 			if (!strcmp(new_argv[0], "cd") || !strcmp(new_argv[0], "exit"))
 			{
@@ -289,7 +289,8 @@ void pipeline(char **argv, int bg)
 				close(fd[conn][1]);
 				i++;
 				conn++;
-				continue;
+				if(conn > pip) break;
+				else continue;
 			}
 			if ((chdpid = fork()) == 0)
 			{
@@ -488,7 +489,7 @@ void phandler_int(int sig)
 	if (mstpid == 0)
 		write(1, "\nswsh> ", strlen("\nswsh> "));
 	else
-		kill(-1 * mstpid, SIGINT);
+		kill(-1 * mstpid, sig);
 }
 
 void chandler_int(int sig)
