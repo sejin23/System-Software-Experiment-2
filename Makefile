@@ -14,7 +14,7 @@ CC		= gcc
 CFLAGS 	= -g -O -Wall
 
 CSRCS	= swsh.c
-TARGET	= swsh.o head.o cat.o cp.o tail.o rm.o mv.o pwd.o man.o
+TARGET	= swsh.o head.o cat.o cp.o tail.o rm.o mv.o pwd.o
 OBJECTS	= $(CSRCS:.c=.o)
 
 all : $(TARGET)
@@ -35,7 +35,5 @@ pwd.o:
 	$(CC) -o pwd pwd.c
 swsh.o:
 	$(CC) -o swsh swsh.c
-man.o:
-	$(CC) -o man man.c
 clean:
 	rm -f $(OBJECTS) $(TARGET)

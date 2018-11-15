@@ -8,6 +8,7 @@
 int main(int argc, char** argv){
     int n, fd1, fd2;
     char buf[MAXLINE];
+    if(argc < 3) exit(0);
     if((fd1 = open(argv[1], O_RDONLY)) < 0) return 0;
     if((fd2 = open(argv[2], O_CREAT|O_WRONLY|O_TRUNC, 0755)) < 0) return 0;
 

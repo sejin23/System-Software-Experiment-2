@@ -3,21 +3,24 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+void stdinhead(int line);
 
 int main(int argc, char** argv) {
     int fd, line, i, st, dp;
     char* fname;
     char word;
-    if(!strcmp(argv[1], "-n")) {
-            fname = argv[3];
-            line = atoi(argv[2]);
-            st = 4;
-            dp = st;
-    } else {
-            fname = argv[1];
-            line = 10;
-            st = 2;
-            dp = st;
+    if(argc < 3){
+        line = 10;
+        if(argc == 1) stdinhead(line);
+        fname = argv[1];
+        st = 2;
+        dp = st;
+    }else{
+        line = atoi(argv[2]);
+        if(argc == 3) stdinhead(line);
+        fname = argv[3];
+        st = 4;
+        dp = st;
     }
     if(argc > st){
         while(argc >= st){
@@ -49,4 +52,17 @@ int main(int argc, char** argv) {
         close(fd);
     }
     return 0;
+}
+
+void stdinhead(int line){
+    char word;
+    int i;
+    for(i=0;i<line;i++){
+        while(1){
+            if(read(0, &word, 1) == 0) exit(0);
+            write(1, &word, sizeof(char));
+            if(word == '\n') break;
+        }
+    }
+    exit(0);
 }

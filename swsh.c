@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <pwd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -54,8 +55,7 @@ int main(int argc, char **argv)
 	signal(SIGINT, phandler_int);
 	signal(SIGTSTP, phandler_int);
 	close(i);
-	while (1)
-	{
+	while (1){
 		printf("swsh> ");
 		ret = fgets(cmdline, MAXLINE, stdin);
 		if (feof(stdin) || ret == NULL)
@@ -80,7 +80,7 @@ char *which_command(char **argv)
 	int fd[2];
 	int status;
 	char *root = NULL;
-	if (strcmp(argv[0], "head") && strcmp(argv[0], "tail") && strcmp(argv[0], "cp") && strcmp(argv[0], "cat") && strcmp(argv[0], "rm") && strcmp(argv[0], "mv") && strcmp(argv[0], "pwd") && strcmp(argv[0], "man"))
+	if (strcmp(argv[0], "head") && strcmp(argv[0], "tail") && strcmp(argv[0], "cp") && strcmp(argv[0], "cat") && strcmp(argv[0], "rm") && strcmp(argv[0], "mv") && strcmp(argv[0], "pwd"))
 		root = strdup("/usr/bin/which");
 	else
 	{
@@ -372,6 +372,7 @@ void changedir(char *argv)
 {
 	int i;
 	char pwdir[MAXPATH];
+	char buf[MAXPATH];
 	char *user_name;
 	struct passwd *u_info;
 	u_info = getpwuid(getuid());
@@ -396,8 +397,17 @@ void changedir(char *argv)
 		pwdir[strlen(pwdir)] = '/';
 		strcat(pwdir, argv);
 	}
-	if (chdir(pwdir) < 0)
-		perror("cd");
+	if (chdir(pwdir) < 0){
+		if(errno == EACCES) fprintf(stderr,"cd: Permission denied\n");
+        else if(errno == EISDIR) fprintf(stderr,"cd: Is a directory\n");
+        else if(errno == ENOENT) fprintf(stderr,"cd: No such file or directory\n");
+        else if(errno == ENOTDIR) fprintf(stderr,"cd: Not a directory\n");
+        else if(errno == EPERM) fprintf(stderr,"cd: Permission denied\n");
+        else{
+            sprintf(buf, "cd: Error occurred: <%d>\n", errno);
+            write(1, buf, strlen(buf));
+        }
+	}
 }
 
 void binding(char **argv)
