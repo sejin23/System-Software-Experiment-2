@@ -44,18 +44,16 @@ pid_t masterpid;
 pid_t chdpid, mstpid;
 int main(int argc, char **argv)
 {
-	int i;
 	char cmdline[MAXLINE];
 	char *ret;
 	char *buf = strtok(argv[0], "/swsh");
 	realpath(buf, condir);
-	i = open("pipe_in.txt", O_CREAT, 0755);
 	mstpid = 0;
 	masterpid = getpid();
 	signal(SIGINT, phandler_int);
 	signal(SIGTSTP, phandler_int);
-	close(i);
-	while (1){
+	while (1)
+	{
 		printf("swsh> ");
 		ret = fgets(cmdline, MAXLINE, stdin);
 		if (feof(stdin) || ret == NULL)
@@ -124,12 +122,7 @@ int builtin_command(char **argv)
 	if (!strcmp(argv[0], "quit"))
 	{
 		if ((pid = fork()) == 0)
-		{
-			strcpy(buf, condir);
-			strcat(buf, "/pipe_in.txt");
-			if (execl("/bin/rm", "/bin/rm", buf, NULL) < 0)
-				exit(0);
-		}
+			exit(0);
 		else
 			waitpid(pid, &status, 0);
 		exit(0);
@@ -173,8 +166,9 @@ void pipeline(char **argv, int bg)
 	char *temp;
 	char buf[MAXARGS];
 	char pwdir[MAXPATH];
+	int fd[MAXPATH][2];
 	int i, j, k, t;
-	int status, app, chd = 0, ext = 0, pip = 0, man = 0;
+	int status, app, chd = 0, ext = 0, pip = 0, man = 0, conn = 0;
 	int fin = 0, fout = 1;
 	if (argv[0] == NULL)
 		return;
@@ -183,15 +177,15 @@ void pipeline(char **argv, int bg)
 	for (i = 0; argv[i] != NULL; i++)
 	{
 		if (!strcmp(argv[i], "|"))
-			pip = 1;
+			pip++;
 		else if (!strcmp(argv[i], "cd"))
 			chd = 1;
 		else if (!strcmp(argv[i], "exit"))
 			ext = 1;
-		else if (!strcmp(argv[i], "man"))
+		else if (!strcmp(argv[i], "man") || !strcmp(argv[i], "bc"))
 			man = 1;
 	}
-	if (!pip)
+	if (pip == 0)
 	{
 		if (chd == 1)
 		{
@@ -200,7 +194,8 @@ void pipeline(char **argv, int bg)
 				if ((pid = fork()) == 0)
 				{
 					setpgrp();
-					for (i = 0; strcmp(argv[i], "cd"); i++);
+					for (i = 0; strcmp(argv[i], "cd"); i++)
+						;
 					changedir(argv[i + 1]);
 					exit(0);
 				}
@@ -209,7 +204,8 @@ void pipeline(char **argv, int bg)
 			}
 			else
 			{
-				for (i = 0; strcmp(argv[i], "cd"); i++);
+				for (i = 0; strcmp(argv[i], "cd"); i++)
+					;
 				changedir(argv[i + 1]);
 				return;
 			}
@@ -221,7 +217,8 @@ void pipeline(char **argv, int bg)
 				if ((pid = fork()) == 0)
 				{
 					setpgrp();
-					for (i = 0; strcmp(argv[i], "exit"); i++);
+					for (i = 0; strcmp(argv[i], "exit"); i++)
+						;
 					write(1, "exit\n", strlen("exit\n"));
 					if (argv[i + 1] != NULL)
 						exit(atoi(argv[i + 1]));
@@ -232,14 +229,13 @@ void pipeline(char **argv, int bg)
 			else
 			{
 				write(1, "exit\n", strlen("exit\n"));
-				for (i = 0; strcmp(argv[i], "exit"); i++);
-				if ((pid = fork()) == 0){
-					strcpy(buf, condir);
-					strcat(buf, "/pipe_in.txt");
-					if (execl("/bin/rm", "/bin/rm", buf, NULL) < 0)
-						exit(0);
-				}else waitpid(pid, &status, 0);
-				
+				for (i = 0; strcmp(argv[i], "exit"); i++)
+					;
+				if ((pid = fork()) == 0)
+					exit(0);
+				else
+					waitpid(pid, &status, 0);
+
 				if (argv[i + 1] != NULL)
 					exit(atoi(argv[i + 1]));
 				else
@@ -256,8 +252,6 @@ void pipeline(char **argv, int bg)
 		i = 0;
 		while (1)
 		{
-			if (argv[i] == NULL)
-				break;
 			for (k = 0; argv[i] != NULL && strcmp(argv[i], "|"); i++, k++)
 			{
 				if (!strcmp(argv[i], "<") || !strcmp(argv[i], ">") || !strcmp(argv[i], ">>"))
@@ -267,6 +261,8 @@ void pipeline(char **argv, int bg)
 			new_argv[k] = NULL;
 			binding(new_argv);
 			app = 0;
+			pipe_in = NULL;
+			pipe_out = NULL;
 			while (argv[i] != NULL && strcmp(argv[i], "|"))
 			{
 				if (!strcmp(argv[i], "<"))
@@ -282,20 +278,27 @@ void pipeline(char **argv, int bg)
 					break;
 				i += 2;
 			}
+			if (pip > 0 && conn < pip)
+			{
+				if (pipe(fd[conn]) < 0)
+					printf("pipe error\n");
+			}
 			if (!strcmp(new_argv[0], "cd") || !strcmp(new_argv[0], "exit"))
 			{
+				close(fd[conn][0]);
+				close(fd[conn][1]);
 				i++;
+				conn++;
 				continue;
 			}
 			if ((chdpid = fork()) == 0)
 			{
 				signal(SIGINT, SIG_DFL);
 				signal(SIGTSTP, SIG_DFL);
-				if (argv[i] != NULL && !strcmp(argv[i], "|"))
+				if (conn < pip)
 				{
-					if ((fout = open("pipe_in.txt", O_CREAT | O_RDWR | O_TRUNC, 0755)) < 0)
-						exit(0);
-					dup2(fout, 1);
+					close(fd[conn][0]);
+					dup2(fd[conn][1], 1);
 				}
 				else if (pipe_out != NULL)
 				{
@@ -311,7 +314,12 @@ void pipeline(char **argv, int bg)
 					}
 					dup2(fout, 1);
 				}
-				if (pipe_in != NULL)
+				if (conn > 0)
+				{
+					close(fd[conn - 1][1]);
+					dup2(fd[conn - 1][0], 0);
+				}
+				else if (pipe_in != NULL)
 				{
 					if ((fin = open(pipe_in, O_RDONLY)) < 0)
 						exit(0);
@@ -329,6 +337,10 @@ void pipeline(char **argv, int bg)
 					}
 				}
 			}
+			if (conn < pip)
+				close(fd[conn][1]);
+			if (conn > 0)
+				close(fd[conn - 1][0]);
 			if ((argv[i] == NULL && !bg) || argv[i] != NULL)
 			{
 				if (waitpid(chdpid, &status, 0) < 0)
@@ -343,14 +355,11 @@ void pipeline(char **argv, int bg)
 				free(new_argv[j]);
 			if (argv[i] == NULL)
 				break;
-			if (!strcmp(argv[i], "|"))
-			{
-				if (pipe_in != NULL)
-					free(pipe_in);
-				pipe_in = strdup("pipe_in.txt");
-			}
 			i++;
+			conn++;
 		}
+		close(fd[conn][1]);
+		close(fd[conn][0]);
 		if (pipe_in != NULL)
 			free(pipe_in);
 		if (pipe_out != NULL)
@@ -363,7 +372,8 @@ void pipeline(char **argv, int bg)
 	}
 	else
 	{
-		while (waitpid(mstpid, &status, 0) > 0);
+		while (waitpid(mstpid, &status, 0) > 0)
+			;
 		mstpid = 0;
 	}
 }
@@ -397,16 +407,23 @@ void changedir(char *argv)
 		pwdir[strlen(pwdir)] = '/';
 		strcat(pwdir, argv);
 	}
-	if (chdir(pwdir) < 0){
-		if(errno == EACCES) fprintf(stderr,"cd: Permission denied\n");
-        else if(errno == EISDIR) fprintf(stderr,"cd: Is a directory\n");
-        else if(errno == ENOENT) fprintf(stderr,"cd: No such file or directory\n");
-        else if(errno == ENOTDIR) fprintf(stderr,"cd: Not a directory\n");
-        else if(errno == EPERM) fprintf(stderr,"cd: Permission denied\n");
-        else{
-            sprintf(buf, "cd: Error occurred: <%d>\n", errno);
-            write(1, buf, strlen(buf));
-        }
+	if (chdir(pwdir) < 0)
+	{
+		if (errno == EACCES)
+			fprintf(stderr, "cd: Permission denied\n");
+		else if (errno == EISDIR)
+			fprintf(stderr, "cd: Is a directory\n");
+		else if (errno == ENOENT)
+			fprintf(stderr, "cd: No such file or directory\n");
+		else if (errno == ENOTDIR)
+			fprintf(stderr, "cd: Not a directory\n");
+		else if (errno == EPERM)
+			fprintf(stderr, "cd: Permission denied\n");
+		else
+		{
+			sprintf(buf, "cd: Error occurred: <%d>\n", errno);
+			write(1, buf, strlen(buf));
+		}
 	}
 }
 
@@ -478,7 +495,8 @@ void chandler_int(int sig)
 {
 	pid_t pid;
 	int status;
-	while ((pid = waitpid(0, &status, WNOHANG | WUNTRACED)) > 0);
+	while ((pid = waitpid(0, &status, WNOHANG | WUNTRACED)) > 0)
+		;
 	exit(0);
 }
 
@@ -488,6 +506,7 @@ void chandler_stp(int sig)
 	int status;
 	pid = waitpid(0, &status, WUNTRACED);
 	kill(pid, SIGINT);
-	while (waitpid(pid, &status, WNOHANG));
+	while (waitpid(pid, &status, WNOHANG))
+		;
 	exit(0);
 }
