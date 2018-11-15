@@ -10,6 +10,10 @@ int main(int argc, char** argv){
     char* fname;
     char word;
     char buf[MAXLINE];
+    /*if(argc == 1){
+
+        return 0;
+    }*/
     if(!strcmp(argv[1], "-n")) {
         fname = argv[3];
         line = atoi(argv[2]);
