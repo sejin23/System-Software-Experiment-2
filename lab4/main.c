@@ -9,7 +9,7 @@ int main(int argc, char* argv[]) {
 	char key[MAX_KEYLEN];
 	int size, thread_num, val;
 	int ret, cnt, keylen, vallen;
-	int* file_n;
+	int file_n, offset;
 	if(argc < 3) {
 		printf("Usage : %s size\n", argv[0]);
 		return -1;
@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
 	
 	while((ret =scanf("%s", key)) != -1) {
 		keylen = strlen(key);
-		val = db_get(DB, key, keylen, &vallen, thread_num, file_n);
+		val = db_get(DB, key, keylen, &vallen, thread_num, &file_n, &offset);
 		if(val == -1) {
 			printf("GET [%s] [NULL]\n", key);
 			cnt = 1;
@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
 			printf("GET [%s] [%d]\n", key, val);
 			cnt = val + 1;
 		}
-		db_put(DB, key, keylen, cnt, sizeof(int), thread_num, *file_n);
+		db_put(DB, key, keylen, cnt, sizeof(int), thread_num, file_n, offset);
 		printf("PUT [%s] [%d]\n", key, cnt);
 
 	}
