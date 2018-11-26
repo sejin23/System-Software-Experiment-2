@@ -28,10 +28,10 @@ int main(int argc, char* argv[]) {
 		keylen = strlen(key);
 		val = db_get(DB, key, keylen, &vallen, thread_num, &file_n, &offset);
 		if(val == -1) {
-			printf("GET [%s] [NULL]\n", key);
+			printf("GET [%s] [NULL] - [%d] - [%d]\n", key, file_n, offset);
 			cnt = 1;
 		} else {
-			printf("GET [%s] [%d]\n", key, val);
+			printf("GET [%s] [%d] - [%d] - [%d]\n", key, val, file_n, offset);
 			cnt = val + 1;
 		}
 		db_put(DB, key, keylen, cnt, sizeof(int), thread_num, file_n, offset);
