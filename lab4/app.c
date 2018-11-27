@@ -10,6 +10,7 @@ int hash_func(char* str){
 	for(i=0;i<len;i++){
 		ret *= str[i];
 	}
+	if(ret%db_s < 0) return ret%db_s+db_s;
 	return ret%db_s;
 }
 
@@ -21,7 +22,7 @@ int main(int argc, char* argv[]) {
 	sprintf(dir, "./db/%d.txt", atoi(argv[1]));
 	fd = open(dir, O_RDONLY);
 	if(fd < 0) exit(0);
-	for(i=0;i<=128;i++){
+	for(i=0;i<=129;i++){
 		wtp = read(fd, &w, sizeof(int));
 		printf("%d:%d ", i, w);
 	}

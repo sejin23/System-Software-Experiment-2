@@ -84,7 +84,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	node *temp_p, *temp, *temp_n;
 	val = 0;
 	prep = 0;
-	//memory search
+	//memory search 쓰레드 1개일 때, 다른 db size가 들어 올때 변경
 	for(i=0;i<thread_n;i++){
 		if(db[i].head == NULL) continue;
 		temp = db[i].head;
@@ -105,11 +105,13 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 		for(j=i;j<=file_s;j+=thread_n){
 			sprintf(dir, "./db/%d.txt", j);
 			fd = open(dir, O_RDONLY);
-			lseek(fd, (hashed+1)*sizeof(int), SEEK_SET);
-			if((wtp = read(fd, &point, sizeof(int))) == 0){
+			if((wtp = read(fd, &db_prev, sizeof(int))) == 0){
 				close(fd);
 				break;
 			}
+			hash_prev = hash_func(key, db_prev);
+			lseek(fd, (hash_prev+1)*sizeof(int), SEEK_CUR);
+			wtp = read(fd, &point, sizeof(int));
 			while(point != 0){
 				lseek(fd, point, SEEK_SET);
 				wtp = read(fd, &len, sizeof(int));
@@ -193,23 +195,16 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 				temp[hashed].next = NULL;
 			}else{
 				temp_n = &temp[hashed];
-				while(temp_n->next != NULL){
-					if(!strcmp(temp_n->key, key)){
-						temp_n->value = val+1;
-						break;
-					}
+				while(temp_n->next != NULL)
 					temp_n = temp_n->next;
-				}
-				if(strcmp(temp_n->key, key)){
-					temp_p = (node*)malloc(sizeof(node));
-					temp_p->key = (char*)malloc(strlen(key)+1);
-					strcpy(temp_p->key, key);
-					temp_p->next = NULL;
-					temp_p->num_f = fnum;
-					temp_p->offset_v = offset;
-					temp_p->value = val+1;
-					temp_n->next = temp_p;
-				}
+				temp_p = (node*)malloc(sizeof(node));
+				temp_p->key = (char*)malloc(strlen(key)+1);
+				strcpy(temp_p->key, key);
+				temp_p->next = NULL;
+				temp_p->num_f = fnum;
+				temp_p->offset_v = offset;
+				temp_p->value = val+1;
+				temp_n->next = temp_p;
 			}
 		}
 	}
@@ -228,6 +223,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 		for(i=0;i<=db_s;i++)
 			wtp = write(fd_s, &zero, sizeof(int));
 		cond = 0;
+		db_prev = db_s;
 	}else wtp = read(fd_s, &cond, sizeof(int));
 
 	for(i=0;i<thread_n;i++){
@@ -237,8 +233,8 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 		for(j=0;j<db_s;j++){
 			if(temp[j].key == NULL)
 				continue;
-			if(i == thread_n - 1){
-				prep = lseek(fd_s, sizeof(int)*(j+1), SEEK_SET);
+			if(i == thread_n - 1 && db_s == db_prev){
+				prep = lseek(fd_s, sizeof(int)*(j+2), SEEK_SET);
 				wtp = read(fd_s, &point, sizeof(int));
 				while(point != 0){
 					lseek(fd_s, point, SEEK_SET);
@@ -251,6 +247,17 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 			while(temp_n != NULL){
 				temp_p = temp_n->next;
 				if(temp_n->num_f == -1){
+					if(db_s != db_prev){
+						hash_prev = hash_func(temp_n->key, db_prev);
+						prep = lseek(fd_s, (hash_prev+2)*sizeof(int), SEEK_SET);
+						wtp = read(fd_s, &point, sizeof(int));
+						while(point != 0){
+							lseek(fd_s, point, SEEK_SET);
+							wtp = read(fd_s, &len, sizeof(int));
+							prep = lseek(fd_s, sizeof(char)*len+sizeof(int), SEEK_CUR);
+							wtp = read(fd_s, &point, sizeof(int));
+						}
+					}
 					point = lseek(fd_s, 0, SEEK_END);
 					len = strlen(temp_n->key);
 					wtp = write(fd_s, &len, sizeof(int));
@@ -262,17 +269,19 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 					wtp = write(fd_s, &point, sizeof(int));
 					cond++;
 					prep = nex;
-					if(cond == db_s){
-						lseek(fd_s, 0, SEEK_SET);
+					if(cond == db_prev){
+						lseek(fd_s, sizeof(int), SEEK_SET);
 						wtp = write(fd_s, &cond, sizeof(int));
 						close(fd_s);
 						cond = 0;
 						file_s++;
 						sprintf(dir, "./db/%d.txt", file_s);
 						fd_s = open(dir, O_CREAT | O_RDWR, 0755);
+						wtp = write(fd_s, &db_s, sizeof(int));
 						for(t=0;t<=db_s;t++)
 							wtp = write(fd_s, &zero, sizeof(int));
-						prep = lseek(fd_s, sizeof(int)*(j+1), SEEK_SET);
+						db_prev = db_s;
+						prep = lseek(fd_s, sizeof(int)*(j+2), SEEK_SET);
 					}
 				}else{
 					if(temp_n->num_f == file_s){
@@ -294,7 +303,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 		free(db[i].head);
 		db[i].head = NULL;
 	}
-	lseek(fd_s, 0, SEEK_SET);
+	lseek(fd_s, sizeof(int), SEEK_SET);
 	wtp = write(fd_s, &cond, sizeof(int));
 	close(fd_s);
 	return val;
