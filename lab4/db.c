@@ -81,27 +81,33 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	int db_prev, hash_prev;
 	char buffer[MAX_KEYLEN];
 	char dir[MAX_DIR];
+	int* ret;
+	params* parg;
 	node *temp_p, *temp, *temp_n;
 	val = 0;
 	prep = 0;
-	//memory search 쓰레드 1개일 때, 다른 db size가 들어 올때 변경
+	//memory search 쓰레드 1개일 때 고려
+	strcpy(buffer, key);
+	buffer[keylen] = '\0';
+	tid = (pthread_t*)malloc(sizeof(pthread_t)*thread_n);
+	parg = (params*)malloc(sizeof(params)*thread_n);
 	for(i=0;i<thread_n;i++){
-		if(db[i].head == NULL) continue;
-		temp = db[i].head;
-		if(temp[hashed].key == NULL) continue;
-		temp_n = &temp[hashed];
-		while(temp_n != NULL){
-			if(!strcmp(temp_n->key, key)){
-				val = temp_n->value;
-				temp_n->value++;
-				return val;
-			}
-			temp_n = temp_n->next;
-		}
+		parg[i].t_num = i;
+		parg[i].t_max = thread_n;
+		parg[i].db_max = db_s;
+		parg[i].key = buffer;
+		parg[i].node_s = db[i].head;
+		pthread_create(&tid[i], NULL, th_memory_get, (void*)&parg[i]);
 	}
+	for(i=0;i<thread_n;i++){
+		pthread_join(tid[i], (void**)&ret);
+		if(*ret != 0) val = *ret;
+		free(ret);
+	}
+	if(val > 0) return val;
 	kv_s++;
 	//file search
-	for(i=0;i<thread_n;i++){
+	/*for(i=0;i<thread_n;i++){
 		for(j=i;j<=file_s;j+=thread_n){
 			sprintf(dir, "./db/%d.txt", j);
 			fd = open(dir, O_RDONLY);
@@ -130,7 +136,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 			if(val > 0) break;
 		}
 		if(val > 0) break;
-	}
+	}*/
 	//memory store
 	if(val == 0){
 		index = thread_n - 1;
@@ -141,7 +147,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 				temp[i].key = NULL;
 				temp[i].next = NULL;
 			}
-			temp[hashed].key = (char*)malloc(strlen(key)+1);
+			temp[hashed].key = (char*)malloc(keylen+1);
 			strcpy(temp[hashed].key, key);
 			temp[hashed].num_f = -1;
 			temp[hashed].offset_v = -1;
@@ -149,7 +155,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 		}else{
 			temp = db[index].head;
 			if(temp[hashed].key == NULL){
-				temp[hashed].key = (char*)malloc(strlen(key)+1);
+				temp[hashed].key = (char*)malloc(keylen+1);
 				strcpy(temp[hashed].key, key);
 				temp[hashed].num_f = -1;
 				temp[hashed].offset_v = -1;
@@ -160,7 +166,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 				while(temp_n->next != NULL)
 					temp_n = temp_n->next;
 				temp_p = (node*)malloc(sizeof(node));
-				temp_p->key = (char*)malloc(strlen(key)+1);
+				temp_p->key = (char*)malloc(keylen+1);
 				strcpy(temp_p->key, key);
 				temp_p->next = NULL;
 				temp_p->num_f = -1;
@@ -179,7 +185,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 				temp[i].key = NULL;
 				temp[i].next = NULL;
 			}
-			temp[hashed].key = (char*)malloc(strlen(key)+1);
+			temp[hashed].key = (char*)malloc(keylen+1);
 			strcpy(temp[hashed].key, key);
 			temp[hashed].num_f = fnum;
 			temp[hashed].offset_v = offset;
@@ -187,7 +193,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 		}else{
 			temp = db[index].head;
 			if(temp[hashed].key == NULL){
-				temp[hashed].key = (char*)malloc(strlen(key)+1);
+				temp[hashed].key = (char*)malloc(keylen+1);
 				strcpy(temp[hashed].key, key);
 				temp[hashed].num_f = fnum;
 				temp[hashed].offset_v = offset;
@@ -198,7 +204,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 				while(temp_n->next != NULL)
 					temp_n = temp_n->next;
 				temp_p = (node*)malloc(sizeof(node));
-				temp_p->key = (char*)malloc(strlen(key)+1);
+				temp_p->key = (char*)malloc(keylen+1);
 				strcpy(temp_p->key, key);
 				temp_p->next = NULL;
 				temp_p->num_f = fnum;
@@ -307,6 +313,27 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	wtp = write(fd_s, &cond, sizeof(int));
 	close(fd_s);
 	return val;
+}
+
+void* th_memory_get(void* arg){
+	params argm = *(params*)arg;
+	node* header = argm.node_s;
+	node *temp;
+	int index = hash_func(argm.key, argm.db_max);
+	int* val = (int*)malloc(sizeof(int));
+	*val = 0;
+	if(header == NULL) return (void*)val;
+	if(header[index].key == NULL) return (void*)val;
+	temp = &header[index];
+	while(temp != NULL){
+		if(!strcmp(temp->key, argm.key)){
+			*val = temp->value;
+			temp->value++;
+			return (void*)val;
+		}
+		temp = temp->next;
+	}
+	return (void*)val;
 }
 
 int hash_func(char* str, int size){
