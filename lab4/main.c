@@ -8,8 +8,7 @@ int main(int argc, char* argv[]) {
 	db_t* DB;
 	char key[MAX_KEYLEN];
 	int size, thread_num, val;
-	int ret, cnt, keylen, vallen;
-	int file_n, offset;
+	int ret, keylen;
 	if(argc < 3) {
 		printf("Usage : %s size\n", argv[0]);
 		return -1;
@@ -26,17 +25,12 @@ int main(int argc, char* argv[]) {
 	
 	while((ret =scanf("%s", key)) != -1) {
 		keylen = strlen(key);
-		val = db_get(DB, key, keylen, &vallen, thread_num, &file_n, &offset);
-		if(val == -1) {
-			printf("GET [%s] [NULL] - [%d] - [%d]\n", key, file_n, offset);
-			cnt = 1;
-		} else {
-			printf("GET [%s] [%d] - [%d] - [%d]\n", key, val, file_n, offset);
-			cnt = val + 1;
-		}
-		db_put(DB, key, keylen, cnt, sizeof(int), thread_num, file_n, offset);
-		printf("PUT [%s] [%d]\n", key, cnt);
-
+		val = db_store(DB, key, keylen, thread_num);
+		if(val == 0)
+			printf("GET [%s] [NULL]\n", key);
+		else
+			printf("GET [%s] [%d]\n", key, val);
+		printf("PUT [%s] [%d]\n", key, val+1);
 	}
 	db_close(DB, thread_num);
 	printf("DB closed\n");

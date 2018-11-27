@@ -22,8 +22,9 @@
 int db_s, file_s, kv_s;
 int zero;
 pthread_t* tid;
+
 db_t* db_open(int size, int t_num) {
-	int i, max_n = 0;
+	int i, max_n = -1;
 	char* dir = "./db";
 	db_t* db = NULL;
 	DIR* dp = NULL;
@@ -40,7 +41,7 @@ db_t* db_open(int size, int t_num) {
 		}
 		file_s = max_n;
 	}else{
-		file_s = 0;
+		file_s = -1;
 		mkdir(dir, 0755);
 	}
 	db = (db_t*)malloc(sizeof(db_t)*t_num);
@@ -58,14 +59,13 @@ void db_close(db_t* db, int t_num) {
 		if(db[i].head != NULL){
 			temp = db[i].head;
 			for(j=0;j<db_s;j++){
-				if(temp[i].key != NULL){
-					temp2 = &temp[i];
-					while(temp2 != NULL){
-						prev = temp2->next;
-						free(temp2->key);
-						free(temp2);
-						temp2 = prev;
-					}
+				if(temp[j].key == NULL) continue;
+				temp2 = &temp[j];
+				while(temp2 != NULL){
+					prev = temp2->next;
+					free(temp2->key);
+					if(prev != temp[j].next) free(temp2);
+					temp2 = prev;
 				}
 			}
 			free(temp);
@@ -74,334 +74,239 @@ void db_close(db_t* db, int t_num) {
 	free(db);
 }
 
-void db_put(db_t* db, char* key, int keylen, int val, int vallen, int thread_n, int file_n, int offset) {
-	int i, index, hashed = hash_func(key);
-	node* temp, *temp2, *new_temp;
-	params* arg;
-	if(file_n == -1 || file_n == file_s) index = thread_n - 1;
-	else index = file_n % (thread_n - 1);
-	if(db[index].head == NULL){
-		if(kv_s < db_s){
-			temp = (node*)malloc(sizeof(node)*db_s);
+int db_store(db_t* db, char* key, int keylen, int thread_n){
+	int wtp, hashed = hash_func(key);
+	int fnum = -1, offset = -1;
+	int i, j, t, val, index, fd, fd_s;
+	int len, point, prep, nex, cond;
+	char buffer[MAX_KEYLEN];
+	char dir[MAX_DIR];
+	node *temp_p, *temp, *temp_n;
+	val = 0;
+	prep = 0;
+	//memory search
+	for(i=0;i<thread_n;i++){
+		if(db[i].head == NULL) continue;
+		temp = db[i].head;
+		if(temp[hashed].key != NULL){
+			temp_n = &temp[hashed];
+			while(temp_n != NULL){
+				if(!strcmp(temp_n->key, key)){
+					val = temp_n->value;
+					temp_n->value++;	//memory에서 찾은 경우 바로 업데이트
+					printf("memory find\n");
+					return val;
+				}
+				temp_n = temp_n->next;
+			}
+		}
+	}
+	kv_s++;
+	//file search
+	for(i=0;i<thread_n;i++){
+		for(j=i;j<=file_s;j+=thread_n){
+			sprintf(dir, "./db/%d.txt", j);
+			fd = open(dir, O_RDONLY);
+			lseek(fd, (hashed+1)*sizeof(int), SEEK_SET);
+			if((wtp = read(fd, &point, sizeof(int))) == 0){
+				close(fd);
+				break;
+			}
+			while(point != 0){
+				lseek(fd, point, SEEK_SET);
+				wtp = read(fd, &len, sizeof(int));
+				wtp = read(fd, buffer, sizeof(char)*len);
+				buffer[len] = '\0';
+				if(!strcmp(buffer, key)){
+					offset = lseek(fd, 0, SEEK_CUR);
+					wtp = read(fd, &val, sizeof(int));
+					fnum = j;
+					printf("file find\n");
+					break;
+				}
+				lseek(fd, sizeof(int), SEEK_CUR);
+				wtp = read(fd, &point, sizeof(int));
+			}
+			close(fd);
+			if(val > 0) break;
+		}
+		if(val > 0) break;
+	}
+	//memory store
+	if(val == 0){
+		index = thread_n - 1;
+		if(db[index].head == NULL){
+			db[index].head = (node*)malloc(sizeof(node)*db_s);
+			temp = db[index].head;
 			for(i=0;i<db_s;i++){
 				temp[i].key = NULL;
 				temp[i].next = NULL;
 			}
 			temp[hashed].key = (char*)malloc(strlen(key)+1);
 			strcpy(temp[hashed].key, key);
-			temp[hashed].value = val;
-			temp[hashed].num_f = file_n;
-			temp[hashed].offset_v = offset;
-			db[index].head = temp;
-			kv_s++;
-			return;
-		}
-	}else{
-		temp = db[index].head;
-		if(temp[hashed].key == NULL){
-			if(kv_s < db_s){
+			temp[hashed].num_f = -1;
+			temp[hashed].offset_v = -1;
+			temp[hashed].value = 1;
+		}else{
+			temp = db[index].head;
+			if(temp[hashed].key == NULL){
 				temp[hashed].key = (char*)malloc(strlen(key)+1);
 				strcpy(temp[hashed].key, key);
-				temp[hashed].value = val;
-				temp[hashed].num_f = file_n;
-				temp[hashed].offset_v = offset;
-				kv_s++;
-				return;
+				temp[hashed].num_f = -1;
+				temp[hashed].offset_v = -1;
+				temp[hashed].value = 1;
+				temp[hashed].next = NULL;
+			}else{
+				temp_n = &temp[hashed];
+				while(temp_n->next != NULL)
+					temp_n = temp_n->next;
+				temp_p = (node*)malloc(sizeof(node));
+				temp_p->key = (char*)malloc(strlen(key)+1);
+				strcpy(temp_p->key, key);
+				temp_p->next = NULL;
+				temp_p->num_f = -1;
+				temp_p->offset_v = -1;
+				temp_p->value = 1;
+				temp_n->next = temp_p;
 			}
+		}
+	}else{
+		if(file_s != fnum) index = fnum%(thread_n-1);
+		else index = thread_n - 1;
+		if(db[index].head == NULL){
+			db[index].head = (node*)malloc(sizeof(node)*db_s);
+			temp = db[index].head;
+			for(i=0;i<db_s;i++){
+				temp[i].key = NULL;
+				temp[i].next = NULL;
+			}
+			temp[hashed].key = (char*)malloc(strlen(key)+1);
+			strcpy(temp[hashed].key, key);
+			temp[hashed].num_f = fnum;
+			temp[hashed].offset_v = offset;
+			temp[hashed].value = val+1;
 		}else{
-			temp2 = &temp[hashed];
-			while(1){
-				if(!strcmp(temp2->key, key)){
-					temp2->value = val;
-					return;
+			temp = db[index].head;
+			if(temp[hashed].key == NULL){
+				temp[hashed].key = (char*)malloc(strlen(key)+1);
+				strcpy(temp[hashed].key, key);
+				temp[hashed].num_f = fnum;
+				temp[hashed].offset_v = offset;
+				temp[hashed].value = val+1;
+				temp[hashed].next = NULL;
+			}else{
+				temp_n = &temp[hashed];
+				while(temp_n->next != NULL){
+					if(!strcmp(temp_n->key, key)){
+						temp_n->value = val+1;
+						break;
+					}
+					temp_n = temp_n->next;
 				}
-				if(temp2->next == NULL) break;
-				temp2 = temp2->next;
-			}
-			if(kv_s < db_s){
-				new_temp = (node*)malloc(sizeof(node));
-				new_temp->key = (char*)malloc(strlen(key)+1);
-				strcpy(new_temp->key, key);
-				new_temp->value = val;
-				new_temp->next = NULL;
-				new_temp->num_f = file_n;
-				new_temp->offset_v = offset;
-				temp2->next = new_temp;
-				kv_s++;
-				return;
+				if(strcmp(temp_n->key, key)){
+					temp_p = (node*)malloc(sizeof(node));
+					temp_p->key = (char*)malloc(strlen(key)+1);
+					strcpy(temp_p->key, key);
+					temp_p->next = NULL;
+					temp_p->num_f = fnum;
+					temp_p->offset_v = offset;
+					temp_p->value = val+1;
+					temp_n->next = temp_p;
+				}
 			}
 		}
 	}
-	kv_s = 1;
-	tid = (pthread_t*)malloc(sizeof(pthread_t)*thread_n);
-	arg = (params*)malloc(sizeof(params)*thread_n);
-	for(i=0;i<thread_n;i++){
-		arg[i].t_max = thread_n;
-		arg[i].t_num = i;
-		arg[i].node_s = db[i].head;
-		pthread_create(&tid[i], NULL, thread_put, (void*)&arg[i]);
+	//file store
+	if(kv_s < db_s) return val;
+	kv_s = 0;
+	printf("file create\n");
+	if(file_s == -1){
+		strcpy(dir, "./db/0.txt");
+		file_s = 0;
+	}else sprintf(dir, "./db/%d.txt", file_s);
+	fd_s = open(dir, O_CREAT | O_RDWR, 0755);
+	wtp = read(fd_s, &cond, sizeof(int));
+	if(wtp == 0){
+		lseek(fd_s, 0, SEEK_SET);
+		for(i=0;i<=db_s;i++)
+			wtp = write(fd_s, &zero, sizeof(int));
+		cond = 0;
 	}
+
 	for(i=0;i<thread_n;i++){
-		pthread_join(tid[i], NULL);
+		if(db[i].head == NULL)
+			continue;
+		temp = db[i].head;
+		for(j=0;j<db_s;j++){
+			if(temp[j].key == NULL)
+				continue;
+			if(i == thread_n - 1){
+				prep = lseek(fd_s, sizeof(int)*(j+1), SEEK_SET);
+				wtp = read(fd_s, &point, sizeof(int));
+				while(point != 0){
+					lseek(fd_s, point, SEEK_SET);
+					wtp = read(fd_s, &len, sizeof(int));
+					prep = lseek(fd_s, sizeof(char)*len+sizeof(int), SEEK_CUR);
+					wtp = read(fd_s, &point, sizeof(int));
+				}
+			}
+			temp_n = &temp[j];
+			while(temp_n != NULL){
+				temp_p = temp_n->next;
+				if(temp_n->num_f == -1){
+					point = lseek(fd_s, 0, SEEK_END);
+					len = strlen(temp_n->key);
+					wtp = write(fd_s, &len, sizeof(int));
+					wtp = write(fd_s, temp_n->key, sizeof(char)*len);
+					wtp = write(fd_s, &temp_n->value, sizeof(int));
+					nex = lseek(fd_s, 0, SEEK_CUR);
+					wtp = write(fd_s, &zero, sizeof(int));
+					lseek(fd_s, prep, SEEK_SET);
+					wtp = write(fd_s, &point, sizeof(int));
+					cond++;
+					prep = nex;
+					if(cond == db_s){
+						lseek(fd_s, 0, SEEK_SET);
+						wtp = write(fd_s, &cond, sizeof(int));
+						close(fd_s);
+						cond = 0;
+						file_s++;
+						sprintf(dir, "./db/%d.txt", file_s);
+						fd_s = open(dir, O_CREAT | O_RDWR, 0755);
+						for(t=0;t<=db_s;t++)
+							wtp = write(fd_s, &zero, sizeof(int));
+						prep = lseek(fd_s, sizeof(int)*(j+1), SEEK_SET);
+					}
+				}else{
+					if(temp_n->num_f == file_s){
+						lseek(fd_s, temp_n->offset_v, SEEK_SET);
+						wtp = write(fd_s, &temp_n->value, sizeof(int));
+					}else{
+						sprintf(dir, "./db/%d.txt", temp_n->num_f);
+						fd = open(dir, O_WRONLY);
+						lseek(fd, temp_n->offset_v, SEEK_SET);
+						wtp = write(fd, &temp_n->value, sizeof(int));
+						close(fd);
+					}
+				}
+				free(temp_n->key);
+				if(temp_p != temp[j].next) free(temp_n);
+				temp_n = temp_p;
+			}
+		}
 		free(db[i].head);
 		db[i].head = NULL;
 	}
-	free(tid);
-	temp = (node*)malloc(sizeof(node)*db_s);
-	for(i=0;i<db_s;i++){
-		temp[i].key = NULL;
-		temp[i].next = NULL;
-	}
-	temp[hashed].key = (char*)malloc(strlen(key)+1);
-	strcpy(temp[hashed].key, key);
-	temp[hashed].value = val;
-	temp[hashed].num_f = file_n;
-	temp[hashed].offset_v = offset;
-	db[index].head = temp;
-	return;
-}
-
-int db_get(db_t* db, char* key, int keylen, int* vallen, int thread_n, int* file_n, int* offset) {
-	int i, value = -1;
-	int* ret;
-	params* argm;
-	tid = (pthread_t*)malloc(sizeof(pthread_t)*thread_n);
-	argm = (params*)malloc(sizeof(params)*thread_n);
-	for(i=0;i<thread_n;i++){
-		argm[i].key = (char*)malloc(sizeof(char)*strlen(key)+1);
-		strcpy(argm[i].key, key);
-		argm[i].node_s = db[i].head;
-		pthread_create(&tid[i], NULL, get_m, (void*)&argm[i]);
-	}
-	for(i=0;i<thread_n;i++){
-		pthread_join(tid[i], (void**)&ret);
-		if(ret != NULL){
-			value = ret[0];
-			*file_n = ret[1];
-			*offset = ret[2];
-			free(ret);    
-		}
-	}
-	if(value == -1){
-		for(i=0;i<thread_n;i++){
-			argm[i].t_num = i;
-			argm[i].t_max = thread_n;
-			pthread_create(&tid[i], NULL, thread_get, (void*)&argm[i]);
-		}
-		for(i=0;i<thread_n;i++){
-			pthread_join(tid[i], (void**)&ret);
-			if(ret != NULL){
-				value = ret[0];
-				*file_n = ret[1];
-				*offset = ret[2];
-				free(ret);
-			}
-		}
-	}
-	if(value == -1){
-		*file_n = -1;
-		*offset = 0;
-	}
-	free(tid);
-	return value;
+	lseek(fd_s, 0, SEEK_SET);
+	wtp = write(fd_s, &cond, sizeof(int));
+	close(fd_s);
+	return val;
 }
 
 int hash_func(char* str){
-	int i, len, ret = 0;
+	int i, len, ret = 1;
 	len = strlen(str);
-	for(i=0;i<len;i++){
+	for(i=0;i<len;i++)
 		ret *= str[i];
-	}
 	return ret%db_s;
-}
-
-void* get_m(void* arg){
-	int hashed;
-	int* ret = (int*)malloc(sizeof(int)*3);
-	params* arg_s = (params*)arg;
-	node* head_n = arg_s->node_s;
-	node* temp;
-	if(head_n == NULL){
-		free(ret);
-		return (void*)NULL;
-	}
-	hashed = hash_func(arg_s->key);
-	if(head_n[hashed].key != NULL){
-		temp = &head_n[hashed];
-		while(temp != NULL){
-			if(!strcmp(temp->key, arg_s->key)){
-				ret[0] = temp->value;
-				ret[1] = temp->num_f;
-				ret[2] = temp->offset_v;
-				return (void*)ret;
-			}
-			temp = temp->next;
-		}
-	}
-	free(ret);
-	return (void*)NULL;
-}
-
-void* thread_put(void* arg){
-	params* arg_s = (params*)arg;
-	int i, j, file_copy, kv_num = 0;
-	int fd, fd_s, keylen, len, wtp;
-	char dir_f[MAX_DIR];
-	char buf[MAX_KEYLEN];
-	int offset, prev_off, next_off;
-	node* head_n = arg_s->node_s;
-	node* temp, *pre_temp;
-	fd = 0;
-	if(head_n == NULL) return NULL;
-	if(arg_s->t_num == arg_s->t_max - 1){
-		file_copy = file_s;
-		sprintf(dir_f, "./db/%d", file_s);
-		fd_s = open(dir_f, O_CREAT | O_RDWR, 0755);
-		if(fd_s < 0){
-			perror("open error");
-			exit(0);
-		}
-		lseek(fd_s, 0, SEEK_SET);
-		offset = 0;
-		if((len = read(fd_s, &kv_num, sizeof(int))) <= 0){
-			lseek(fd_s, 0, SEEK_SET);
-			for(i=0;i<db_s+1;i++)
-				wtp = write(fd_s, &zero, sizeof(int));
-		}
-		for(i=0;i<db_s;i++){
-			if(head_n[i].key == NULL)
-				continue;
-			prev_off = sizeof(int)*(i+1);
-			wtp = read(fd_s, &offset, sizeof(int));
-			if(offset != 0){
-				while(1){
-					lseek(fd_s, offset, SEEK_SET);
-					wtp = read(fd_s, &len, sizeof(int));
-					wtp = read(fd_s, buf, sizeof(char)*len);
-					wtp = read(fd_s, &len, sizeof(int));
-					prev_off = lseek(fd_s, 0, SEEK_CUR);
-					wtp = read(fd_s, &next_off, sizeof(int));
-					if(next_off == 0) break;
-					offset = next_off;
-				}
-			}
-			temp = &head_n[i];
-			while(temp != NULL){
-				keylen = strlen(temp->key);
-				if(temp->num_f == -1){
-					offset = lseek(fd_s, 0, SEEK_END);
-					wtp = write(fd_s, &keylen, sizeof(int));
-					wtp = write(fd_s, temp->key, sizeof(char)*keylen);
-					wtp = write(fd_s, &temp->value, sizeof(int));
-					next_off = lseek(fd_s, 0, SEEK_CUR);
-					wtp = write(fd_s, &zero, sizeof(int));
-					lseek(fd_s, prev_off, SEEK_SET);
-					wtp = write(fd_s, &offset, sizeof(int));
-					prev_off = next_off;
-					kv_num++;
-				}else{
-					if(file_copy == file_s){
-						lseek(fd_s, temp->offset_v, SEEK_SET);
-						wtp = write(fd_s, &temp->value, sizeof(int));
-					}else{
-						lseek(fd, temp->offset_v, SEEK_SET);
-						wtp = write(fd, &temp->value, sizeof(int));
-					}
-				}
-				if(kv_num == db_s){
-					file_s++;
-					lseek(fd_s, 0, SEEK_SET);
-					wtp = write(fd_s, &kv_num, sizeof(int));
-					fd = fd_s;
-					memset(dir_f, '\0', MAX_DIR);
-					sprintf(dir_f, "./db/%d", file_s);
-					fd_s = open(dir_f, O_CREAT | O_RDWR, 0755);
-					for(j=0;j<db_s+1;j++)
-						wtp = write(fd_s, &zero, sizeof(int));
-					kv_num = 0;
-					prev_off = sizeof(int)*(i+1);
-				}
-				pre_temp = temp->next;
-				if(temp != &head_n[i]){
-					free(temp->key);
-					free(temp);
-				}else{
-					free(head_n[i].key);
-					head_n[i].key = NULL;
-					head_n[i].next = NULL;
-				}
-				temp = pre_temp;
-			}
-		}
-		if(fd > 0) close(fd);
-		close(fd_s);
-	}else{
-		for(i=0;i<db_s;i++){
-			if(head_n[i].key == NULL)
-				continue;
-			temp = &head_n[i];
-			while(temp != NULL){
-				sprintf(dir_f, "./db/%d", temp->num_f);
-				fd_s = open(dir_f, O_WRONLY);
-				lseek(fd_s, temp->offset_v, SEEK_SET);
-				wtp = write(fd_s, &temp->value, sizeof(int));
-				close(fd_s);
-				pre_temp = temp->next;
-				if(temp != &head_n[i]){
-					free(temp->key);
-					free(temp);
-				}else{
-					free(head_n[i].key);
-					head_n[i].key = NULL;
-					head_n[i].next = NULL;
-				}
-				temp = pre_temp;
-			}
-		}
-	}
-	wtp = wtp;
-	return NULL;
-}
-
-void* thread_get(void* arg){
-	int i, j, id_s, max_s, fd, wtp;
-	int hashed, offset, len, val;
-	int* ret = (int*)malloc(sizeof(int)*3);
-	params* arg_s = (params*)arg;
-	char* key = (char*)malloc(sizeof(char)*strlen(arg_s->key)+1);
-	char word[MAX_KEYLEN];
-	char dir_f[MAX_DIR];
-	strcpy(key, arg_s->key);
-	hashed = hash_func(key);
-	max_s = arg_s->t_max;
-	id_s = arg_s->t_num;
-	for(i=id_s;i<file_s;i+=max_s){
-		sprintf(dir_f, "./db/%d", i);
-		fd = open(dir_f, O_RDONLY);
-		lseek(fd, (hashed+1)*sizeof(int), SEEK_SET);
-		wtp = read(fd, &offset, sizeof(int));
-		val = 0;
-		while(offset != 0){
-			lseek(fd, offset, SEEK_SET);
-			wtp = read(fd, &len, sizeof(int));
-			wtp = read(fd, word, sizeof(char)*len);
-			key[len] = '\0';
-			offset = lseek(fd, 0, SEEK_CUR);
-			wtp = read(fd, &val, sizeof(int));
-			if(!strcmp(word, key)) break;
-			wtp = read(fd, &offset, sizeof(int));
-		}
-		close(fd);
-		if(val > 0){
-			ret[0] = val;
-			ret[1] = i;
-			ret[2] = offset;
-			for(j=0;j<max_s;j++){
-				if(j != id_s) pthread_cancel(tid[j]);
-			}
-			return (void*)ret;
-		}
-	}
-	wtp = wtp;
-	return NULL;
 }

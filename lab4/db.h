@@ -1,5 +1,5 @@
 #define MAX_KEYLEN 1024
-#define MAX_DIR 64
+#define MAX_DIR 32
 typedef struct _node{
 	int value, num_f, offset_v;
 	char* key;
@@ -17,10 +17,6 @@ typedef struct _params{
 }params;
 
 db_t* db_open(int size, int t_num);
-void* get_m(void* arg);
-void* thread_put(void* arg);
-void* thread_get(void* arg);
 void db_close(db_t* db, int t_num);
-void db_put(db_t* db, char* key, int keylen, int val, int vallen, int thread_n, int file_n, int offset);
-int db_get(db_t* db, char* key, int keylen, int* vallen, int thread_n, int* file_n, int* offset);
+int db_store(db_t* db, char* key, int keylen, int thread_n);
 int hash_func(char* str);
