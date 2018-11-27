@@ -17,11 +17,11 @@ int main(int argc, char* argv[]) {
 	int i, fd, data, wtp, len, w;
 	char buf[1024];
 	char dir[64];
-	db_s = 4;
+	db_s = 128;
 	sprintf(dir, "./db/%d.txt", atoi(argv[1]));
 	fd = open(dir, O_RDONLY);
 	if(fd < 0) exit(0);
-	for(i=0;i<=4;i++){
+	for(i=0;i<=128;i++){
 		wtp = read(fd, &w, sizeof(int));
 		printf("%d:%d ", i, w);
 	}

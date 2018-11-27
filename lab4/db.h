@@ -19,4 +19,4 @@ typedef struct _params{
 db_t* db_open(int size, int t_num);
 void db_close(db_t* db, int t_num);
 int db_store(db_t* db, char* key, int keylen, int thread_n);
-int hash_func(char* str);
+int hash_func(char* str, int size);

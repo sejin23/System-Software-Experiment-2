@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
 	}
 	printf("DB opened\n");
 	
-	while((ret =scanf("%s", key)) != -1) {
+	while((ret = scanf("%s", key)) != -1) {
 		keylen = strlen(key);
 		val = db_store(DB, key, keylen, thread_num);
 		if(val == 0)

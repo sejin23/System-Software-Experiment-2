@@ -51,34 +51,34 @@ db_t* db_open(int size, int t_num) {
 }
 
 void db_close(db_t* db, int t_num) {
-	int i, j;
-	node* temp;
-	node* prev;
-	node* temp2;
+	int i, j, cnt;
+	node *temp, *prev, *temp2;
 	for(i=0;i<t_num;i++){
-		if(db[i].head != NULL){
-			temp = db[i].head;
-			for(j=0;j<db_s;j++){
-				if(temp[j].key == NULL) continue;
-				temp2 = &temp[j];
-				while(temp2 != NULL){
-					prev = temp2->next;
-					free(temp2->key);
-					if(prev != temp[j].next) free(temp2);
-					temp2 = prev;
-				}
+		if(db[i].head == NULL) continue;
+		temp = db[i].head;
+		for(j=0;j<db_s;j++){
+			if(temp[j].key == NULL) continue;
+			temp2 = &temp[j];
+			cnt = 0;
+			while(temp2 != NULL){
+				prev = temp2->next;
+				free(temp2->key);
+				if(cnt == 1) free(temp2);
+				cnt = 1;
+				temp2 = prev;
 			}
-			free(temp);
 		}
+		free(temp);
 	}
 	free(db);
 }
 
 int db_store(db_t* db, char* key, int keylen, int thread_n){
-	int wtp, hashed = hash_func(key);
+	int wtp, hashed = hash_func(key, db_s);
 	int fnum = -1, offset = -1;
 	int i, j, t, val, index, fd, fd_s;
 	int len, point, prep, nex, cond;
+	int db_prev, hash_prev;
 	char buffer[MAX_KEYLEN];
 	char dir[MAX_DIR];
 	node *temp_p, *temp, *temp_n;
@@ -88,17 +88,15 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	for(i=0;i<thread_n;i++){
 		if(db[i].head == NULL) continue;
 		temp = db[i].head;
-		if(temp[hashed].key != NULL){
-			temp_n = &temp[hashed];
-			while(temp_n != NULL){
-				if(!strcmp(temp_n->key, key)){
-					val = temp_n->value;
-					temp_n->value++;	//memory에서 찾은 경우 바로 업데이트
-					printf("memory find\n");
-					return val;
-				}
-				temp_n = temp_n->next;
+		if(temp[hashed].key == NULL) continue;
+		temp_n = &temp[hashed];
+		while(temp_n != NULL){
+			if(!strcmp(temp_n->key, key)){
+				val = temp_n->value;
+				temp_n->value++;
+				return val;
 			}
+			temp_n = temp_n->next;
 		}
 	}
 	kv_s++;
@@ -121,7 +119,6 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 					offset = lseek(fd, 0, SEEK_CUR);
 					wtp = read(fd, &val, sizeof(int));
 					fnum = j;
-					printf("file find\n");
 					break;
 				}
 				lseek(fd, sizeof(int), SEEK_CUR);
@@ -219,19 +216,19 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	//file store
 	if(kv_s < db_s) return val;
 	kv_s = 0;
-	printf("file create\n");
 	if(file_s == -1){
 		strcpy(dir, "./db/0.txt");
 		file_s = 0;
 	}else sprintf(dir, "./db/%d.txt", file_s);
 	fd_s = open(dir, O_CREAT | O_RDWR, 0755);
-	wtp = read(fd_s, &cond, sizeof(int));
+	wtp = read(fd_s, &db_prev, sizeof(int));
 	if(wtp == 0){
 		lseek(fd_s, 0, SEEK_SET);
+		wtp = write(fd_s, &db_s, sizeof(int));
 		for(i=0;i<=db_s;i++)
 			wtp = write(fd_s, &zero, sizeof(int));
 		cond = 0;
-	}
+	}else wtp = read(fd_s, &cond, sizeof(int));
 
 	for(i=0;i<thread_n;i++){
 		if(db[i].head == NULL)
@@ -303,10 +300,11 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	return val;
 }
 
-int hash_func(char* str){
+int hash_func(char* str, int size){
 	int i, len, ret = 1;
 	len = strlen(str);
 	for(i=0;i<len;i++)
 		ret *= str[i];
-	return ret%db_s;
+	if(ret%size < 0) return ret%size + size;
+	return ret%size;
 }
