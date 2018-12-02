@@ -20,7 +20,7 @@ OBJECTS	= $(CSRCS:.c=.o)
 all : $(TARGET)
 
 $(TARGET) : $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ -lpthread
+	$(CC) $(OBJECTS) -o $@ -pthread
 
 .c.o:
 	$(CC) $(CFLAGS) -c $< -o $@

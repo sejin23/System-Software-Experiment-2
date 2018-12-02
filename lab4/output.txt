@@ -16,17 +16,13 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
-#include <signal.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-pthread_mutex_t gmutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t gcond = PTHREAD_COND_INITIALIZER;
 int db_s, file_s, kv_s;
 int zero;
 int th_v, th_f, th_o;
-int* fileclose;
-pthread_t* tid;
+
 db_t* db_open(int size, int t_num) {
 	int i, max_n = -1;
 	char* dir = "./db";
@@ -84,6 +80,7 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	int db_prev, hash_prev;
 	char buffer[MAX_KEYLEN];
 	char dir[MAX_DIR];
+	pthread_t* tid;
 	params* parg;
 	node *temp_p, *temp, *temp_n;
 	th_v = 0;
@@ -93,36 +90,56 @@ int db_store(db_t* db, char* key, int keylen, int thread_n){
 	//memory search 쓰레드 1개일 때 고려
 	strcpy(buffer, key);
 	buffer[keylen] = '\0';
-	tid = (pthread_t*)malloc(sizeof(pthread_t)*thread_n);
 	parg = (params*)malloc(sizeof(params)*thread_n);
+	tid = (pthread_t*)malloc(sizeof(pthread_t)*thread_n);
 	for(i=0;i<thread_n;i++){
+		if(i > 0){
+			parg[i].tid = (pthread_t*)malloc(sizeof(pthread_t)*i);
+			for(j=0;j<i;j++)
+				parg[i].tid[j] = tid[j];
+		}
 		parg[i].t_num = i;
 		parg[i].t_max = thread_n;
+		parg[i].db_max = db_s;
 		parg[i].key = buffer;
 		parg[i].node_s = db[i].head;
 		pthread_create(&tid[i], NULL, th_memory_get, (void*)&parg[i]);
 	}
-	for(i=0;i<thread_n;i++)
+	for(i=0;i<thread_n;i++){
 		pthread_join(tid[i], NULL);
-
+		if(th_v > 0){
+			for(j=i+1;j<thread_n;j++)
+				pthread_cancel(tid[j]);
+		}
+	}
 	if(th_v > 0){
+		for(i=1;i<thread_n;i++) free(parg[i].tid);
 		free(tid);
-		free(parg);
+		free(parg);	
 		return th_v;
 	}
 	kv_s++;
 	//file search
-	fileclose = (int*)malloc(sizeof(int)*thread_n);
-	for(i=0;i<thread_n;i++)
-		pthread_create(&tid[i], NULL, th_file_get, (void*)&parg[i]);
-	pthread_cond_signal(&gcond);
 	for(i=0;i<thread_n;i++){
-		pthread_join(tid[i], NULL);
-		close(fileclose[i]);
+		if(i > 0){
+			parg[i].tid = (pthread_t*)malloc(sizeof(pthread_t)*i);
+			for(j=0;j<i;j++)
+				parg[i].tid[j] = tid[j];
+		} 
+		parg[i].db_max = file_s;
+		pthread_create(&tid[i], NULL, th_file_get, (void*)&parg[i]);
 	}
-	free(fileclose);
+	for(i=0;i<thread_n;i++){
+		if(i > 0) free(parg[i].tid);
+		pthread_join(tid[i], NULL);
+		if(th_v > 0){
+			for(j=i+1;j<thread_n;j++)
+				pthread_cancel(tid[j]);
+		}
+	}
 	free(tid);
 	free(parg);
+
 	//memory store
 	if(th_v == 0){
 		index = thread_n - 1;
@@ -305,30 +322,33 @@ void* th_memory_get(void* arg){
 	params argm = *(params*)arg;
 	node* header = argm.node_s;
 	node *temp;
-	int index = hash_func(argm.key, db_s);
-	if(header == NULL) pthread_exit(NULL);
-	if(header[index].key == NULL) pthread_exit(NULL);
+	pthread_t* thd = argm.tid;
+	int i, index = hash_func(argm.key, argm.db_max);
+	if(header == NULL) return NULL;
+	if(header[index].key == NULL) return NULL;
 	temp = &header[index];
 	while(temp != NULL){
 		if(!strcmp(temp->key, argm.key)){
 			th_v = temp->value;
 			temp->value++;
-			pthread_exit(NULL);
+			for(i=0;i<argm.t_num;i++)
+				pthread_cancel(thd[i]);
+			return NULL;
 		}
 		temp = temp->next;
 	}
-	pthread_exit(NULL);
+	return NULL;
 }
 
 void* th_file_get(void* arg){
 	params argm = *(params*)arg;
-	int st = argm.t_num, th = argm.t_max, ed = file_s;
+	int st = argm.t_num, th = argm.t_max, ed = argm.db_max;
 	int i, fd, wtp, db_p, hash_p, point, len;
+	int *ret = (int*)malloc(sizeof(int)*3);
 	char dir[MAX_DIR];
 	char buf[MAX_KEYLEN];
-	// pthread_mutex_lock(&gmutex);
-	// pthread_cond_wait(&gcond, &gmutex);
-	// pthread_mutex_unlock(&gmutex);
+	pthread_t* thd = argm.tid;
+	ret[0] = 0;
 	for(i=st;i<=ed;i+=th){
 		sprintf(dir, "./db/%d.txt", i);
 		fd = open(dir, O_RDONLY);
@@ -336,7 +356,6 @@ void* th_file_get(void* arg){
 			close(fd);
 			continue;
 		}
-		fileclose[argm.t_num] = fd;
 		hash_p = hash_func(argm.key, db_p);
 		lseek(fd, (hash_p+1)*sizeof(int), SEEK_CUR);
 		wtp = read(fd, &point, sizeof(int));
@@ -349,18 +368,17 @@ void* th_file_get(void* arg){
 				th_o = lseek(fd, 0, SEEK_CUR);
 				wtp = read(fd, &th_v, sizeof(int));
 				th_f = i;
-				//close(fd);
-				for(i=0;i<th;i++){
-					if(i != st) pthread_cancel(tid[i]);
-				}
-				pthread_exit(NULL);
+				close(fd);
+				for(i=0;i<st;i++)
+					pthread_cancel(thd[i]);
+				return NULL;
 			}
 			lseek(fd, sizeof(int), SEEK_CUR);
 			wtp = read(fd, &point, sizeof(int));
 		}
 		close(fd);
 	}
-	pthread_exit(NULL);
+	return NULL;
 }
 int hash_func(char* str, int size){
 	int i, len, ret = 1;

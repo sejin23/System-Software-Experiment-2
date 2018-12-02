@@ -12,7 +12,7 @@ typedef struct db {
 
 typedef struct _params{
 	char* key;
-	int t_num, t_max, db_max;
+	int t_num, t_max;
 	node* node_s;
 }params;
 
