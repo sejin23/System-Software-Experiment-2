@@ -45,25 +45,14 @@ db_t* db_open(int size, int t_num) {
 }
 
 void db_close(db_t* db) {
-	int i, j, cnt;
-	node *temp, *prev, *temp2;
-	for(i=0;i<th_n;i++){
-		if(db[i].head == NULL) continue;
-		temp = db[i].head;
-		for(j=0;j<db_s;j++){
-			if(temp[j].key == NULL) continue;
-			temp2 = &temp[j];
-			cnt = 0;
-			while(temp2 != NULL){
-				prev = temp2->next;
-				free(temp2->key);
-				if(cnt == 1) free(temp2);
-				cnt = 1;
-				temp2 = prev;
-			}
-		}
-		free(temp);
-	}
+	int i;
+	pthread_t* tid = (pthread_t*)malloc(sizeof(pthread_t)*th_n);
+	for(i=0;i<th_n;i++)
+		pthread_create(&tid[i], NULL, th_file_put, (void*)db[i].head);
+	for(i=0;i<th_n;i++)
+		pthread_join(tid[i], NULL);
+	for(i=0;i<th_n;i++)
+		free(db[i].head);
 	free(db);
 }
 
@@ -152,32 +141,6 @@ int db_store(db_t* db, char* key, int keylen){
 		db[i].head = NULL;
 	}
 	free(tid);
-	/*for(i=0;i<MAX_FILE;i++){
-		if(db[i].head == NULL) continue;
-		temp = db[i].head;
-		sprintf(dir, "./db/%d.txt", i);
-		fd = open(dir, O_CREAT | O_WRONLY);
-		for(j=0;j<db_s;j++){
-			if(temp[j].key == NULL) continue;
-			temp_n = &temp[j];
-			while(temp_n != NULL){
-				temp_p = temp_n->next;
-				if(temp_n->offset == -1){
-					lseek(fd, 0, SEEK_END);
-					keysize = strlen(temp_n->key);
-					wtp = write(fd, &keysize, sizeof(int));
-					wtp = write(fd, temp_n->key, keysize);
-				}else lseek(fd, temp_n->offset, SEEK_SET);
-				wtp = write(fd, &temp_n->value, sizeof(int));
-				free(temp_n->key);
-				if(temp_p != temp[j].next) free(temp_n);
-				temp_n = temp_p;
-			}
-		}
-		close(fd);
-		free(temp);
-		db[i].head = NULL;
-	}*/
 	return value;
 }
 
