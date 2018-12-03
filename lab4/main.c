@@ -25,14 +25,14 @@ int main(int argc, char* argv[]) {
 	
 	while((ret = scanf("%s", key)) != -1) {
 		keylen = strlen(key);
-		val = db_store(DB, key, keylen, thread_num);
+		val = db_store(DB, key, keylen);
 		if(val == 0)
 			printf("GET [%s] [NULL]\n", key);
 		else
 			printf("GET [%s] [%d]\n", key, val);
 		printf("PUT [%s] [%d]\n", key, val+1);
 	}
-	db_close(DB, thread_num);
+	db_close(DB);
 	printf("DB closed\n");
 	return 0;
 }
