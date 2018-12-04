@@ -12,8 +12,8 @@ typedef struct db {
 }db_t;
 
 db_t* db_open(int size, int t_num);
-void* th_create(void* arg);
 void db_close(db_t* db);
-int db_store(db_t* db, char* key, int keylen);
+int db_get(db_t* db, char* key, int keylen, int* offset);
+void db_put(db_t* db, char* key, int keylen, int val, int offset);
 void* th_file_put(void* arg);
 int hash_func(char* str, int size);

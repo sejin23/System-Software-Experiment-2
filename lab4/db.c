@@ -56,14 +56,12 @@ void db_close(db_t* db) {
 	free(db);
 }
 
-int db_store(db_t* db, char* key, int keylen){
-	int i, fd, wtp, keysize;
-	int value = 0, offset = -1;
+int db_get(db_t* db, char* key, int keylen, int* offset){
+	int fd, wtp, keysize, value;
 	int hashed = hash_func(key, db_s), fhash = hash_func(key, MAX_FILE), thash;
 	char dir[MAX_FILE];
 	char buf[MAX_KEYLEN];
-	pthread_t* tid;
-	node *temp, *temp_n, *temp_p;
+	node *temp, *temp_n;
 	//memory search
 	thash = fhash%th_n;
 	if(thash < 0) thash += th_n;
@@ -73,9 +71,8 @@ int db_store(db_t* db, char* key, int keylen){
 			temp_n = &temp[hashed];
 			while(temp_n != NULL){
 				if(!strcmp(key, temp_n->key)){
-					value = temp_n->value;
-					temp_n->value++;
-					return value;
+					*offset = temp_n->offset;
+					return temp_n->value;
 				}
 				temp_n = temp_n->next;
 			}
@@ -83,6 +80,7 @@ int db_store(db_t* db, char* key, int keylen){
 	}
 	kv_s++;
 	//file search
+	value = 0;
 	sprintf(dir, "./db/%d.txt", fhash);
 	fd = open(dir, O_RDONLY);
 	while((wtp = read(fd, &keysize, sizeof(int))) > 0){
@@ -90,13 +88,23 @@ int db_store(db_t* db, char* key, int keylen){
 		wtp = read(fd, buf, keysize);
 		buf[keysize] = '\0';
 		if(!strcmp(buf, key)){
-			offset = lseek(fd, 0, SEEK_CUR);
+			*offset = lseek(fd, 0, SEEK_CUR);
 			wtp = read(fd, &value, sizeof(int));
 			break;
-		}else lseek(fd, sizeof(int), SEEK_CUR);
+		}
+		lseek(fd, sizeof(int), SEEK_CUR);
 	}
 	close(fd);
-	//memory store
+	return value;
+}
+
+void db_put(db_t* db, char* key, int keylen, int val, int offset){
+	int hashed = hash_func(key, db_s), fhash = hash_func(key, MAX_FILE), thash, i;
+	node *temp, *temp_p, *temp_n;
+	pthread_t* tid;
+	// memory store
+	thash = fhash%th_n;
+	if(thash < 0) thash += th_n;
 	if(db[thash].head == NULL){
 		db[thash].head = (node*)malloc(sizeof(node)*db_s);
 		temp = db[thash].head;
@@ -107,29 +115,35 @@ int db_store(db_t* db, char* key, int keylen){
 		temp[hashed].key = (char*)malloc(keylen+1);
 		strcpy(temp[hashed].key, key);
 		temp[hashed].offset = offset;
-		temp[hashed].value = value+1;
+		temp[hashed].value = val;
 	}else{
 		temp = db[thash].head;
 		if(temp[hashed].key == NULL){
 			temp[hashed].key = (char*)malloc(keylen+1);
 			strcpy(temp[hashed].key, key);
-			temp[hashed].value = value+1;
+			temp[hashed].value = val;
 			temp[hashed].offset = offset;
 		}else{
 			temp_n = &temp[hashed];
-			while(temp_n->next != NULL)
+			while(1){
+				if(!strcmp(key, temp_n->key)){
+					temp_n->value = val;
+					return;
+				}
+				if(temp_n->next == NULL) break;
 				temp_n = temp_n->next;
+			}
 			temp_p = (node*)malloc(sizeof(node));
 			temp_p->key = (char*)malloc(keylen+1);
 			strcpy(temp_p->key, key);
 			temp_p->next = NULL;
-			temp_p->value = value+1;
+			temp_p->value = val;
 			temp_p->offset = offset;
 			temp_n->next = temp_p;
 		}
 	}
 	//file store
-	if(kv_s < db_s) return value;
+	if(kv_s < db_s) return;
 	kv_s = 0;
 	tid = (pthread_t*)malloc(sizeof(pthread_t)*th_n);
 	for(i=0;i<th_n;i++)
@@ -141,7 +155,7 @@ int db_store(db_t* db, char* key, int keylen){
 		db[i].head = NULL;
 	}
 	free(tid);
-	return value;
+	return;
 }
 
 void* th_file_put(void* arg){
