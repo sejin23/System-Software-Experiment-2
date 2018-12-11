@@ -62,7 +62,6 @@ int db_get(db_t* db, char* key, int keylen, int* offset){
 	char dir[MAX_FILE];
 	char buf[MAX_KEYLEN];
 	node *temp, *temp_n;
-	//memory search
 	thash = fhash%th_n;
 	if(thash < 0) thash += th_n;
 	if(db[thash].head != NULL){
@@ -79,7 +78,6 @@ int db_get(db_t* db, char* key, int keylen, int* offset){
 		}
 	}
 	kv_s++;
-	//file search
 	value = 0;
 	sprintf(dir, "./db/%d.txt", fhash);
 	fd = open(dir, O_RDONLY);
@@ -102,7 +100,6 @@ void db_put(db_t* db, char* key, int keylen, int val, int offset){
 	int hashed = hash_func(key, db_s), fhash = hash_func(key, MAX_FILE), thash, i;
 	node *temp, *temp_p, *temp_n;
 	pthread_t* tid;
-	// memory store
 	thash = fhash%th_n;
 	if(thash < 0) thash += th_n;
 	if(db[thash].head == NULL){
@@ -142,7 +139,6 @@ void db_put(db_t* db, char* key, int keylen, int val, int offset){
 			temp_n->next = temp_p;
 		}
 	}
-	//file store
 	if(kv_s < db_s) return;
 	kv_s = 0;
 	tid = (pthread_t*)malloc(sizeof(pthread_t)*th_n);
