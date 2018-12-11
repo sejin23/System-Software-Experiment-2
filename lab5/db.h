@@ -29,16 +29,18 @@ typedef struct _arg {
 	user_t* mutex;
 }arg_t;
 
-int client_n, person, db_s, kv_s;
+int client_n, contact_n, person, db_s, kv_s;
 db_t* DB;
 user_t* USER;
 pthread_mutex_t* mtx;
+pthread_mutex_t cnct_mutex, dbs_mutex, kv_mutex, user_mutex;
+pthread_cond_t cnct_cond;
 
 db_t* db_open(int size);
 void db_close(db_t* db);
-char* db_get(db_t* db, char* key, int keylen);
-void db_put(db_t* db, char* key, int keylen, char* val, int vallen);
-void db_put_file(db_t* db);
+char* db_get(char* key, int keylen);
+void db_put(char* key, int keylen, char* val, int vallen);
+void db_put_file();
 int hash_func(char* str, int size);
 
 void* thread_main(void* arg);

@@ -1,8 +1,5 @@
 #include "db.h"
 
-pthread_mutex_t clin_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t user_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 int main(int argc, char** argv){
 	int serverSocket, clientSocket, clntAddrLen, n;
 	struct sockaddr_in serverAddr, clientAddr;
@@ -20,8 +17,15 @@ int main(int argc, char** argv){
 	USER->prev = NULL;
 	USER->next = NULL;
 	DB = db_open(atoi(argv[3]));
-	//mtx = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t)*atoi(argv[3]));
-	//for(n=0;n<atoi(argv[3]);n++) pthread_mutex_init(&mtx[n], NULL);
+	contact_n = 0;
+	mtx = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t)*atoi(argv[3]));
+	for(n=0;n<atoi(argv[3]);n++) pthread_mutex_init(&mtx[n], NULL);
+	pthread_mutex_init(&cnct_mutex, NULL);
+	pthread_mutex_init(&dbs_mutex, NULL);
+	pthread_mutex_init(&kv_mutex, NULL);
+	pthread_mutex_init(&user_mutex, NULL);
+	pthread_mutex_init(&cnct_mutex, NULL);
+	pthread_cond_init(&cnct_cond, NULL);
 	if((serverSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
 		perror("socket error");
 		exit(1);
@@ -48,13 +52,13 @@ int main(int argc, char** argv){
         memset(buf, 0, MAX_KEYLEN);
         n = read(clientSocket, buf, MAX_KEYLEN);
         if(!strncmp(buf, "CONNECT", strlen("CONNECT"))){
-            pthread_mutex_lock(&clin_mutex);
+            pthread_mutex_lock(&cnct_mutex);
             if(client_n == person){
-				pthread_mutex_unlock(&clin_mutex);
+				pthread_mutex_unlock(&cnct_mutex);
                 n = write(clientSocket, "CONNECT_FAIL\n", strlen("CONNECT_FAIL\n"));
                 continue;
             }else{
-				pthread_mutex_unlock(&clin_mutex);
+				pthread_mutex_unlock(&cnct_mutex);
                 n = write(clientSocket, "CONNECT_OK\n", strlen("CONNECT_OK\n"));
 			}
 			newuser = (user_t*)malloc(sizeof(user_t));
@@ -74,8 +78,7 @@ int main(int argc, char** argv){
             n = write(clientSocket, "UNDEFINED PROTOCOL\n", strlen("UNDEFINED PROTOCOL\n"));
 	}
 	db_close(DB);
-	//for(n=0;n<atoi(argv[3]);n++) pthread_mutex_destroy(&mtx[n]);
-	n = n;
+	for(n=0;n<atoi(argv[3]);n++) pthread_mutex_destroy(&mtx[n]);
     return 0;
 }
 
@@ -91,9 +94,9 @@ void* thread_main(void* arg){
 	pthread_mutex_unlock(&user_mutex);
 	pthread_detach(pthread_self());
 
-	pthread_mutex_lock(&clin_mutex);
+	pthread_mutex_lock(&cnct_mutex);
 	client_n++;
-	pthread_mutex_unlock(&clin_mutex);
+	pthread_mutex_unlock(&cnct_mutex);
     
 	while(1){
 		memset(buf, 0, MAX_KEYLEN);
@@ -105,7 +108,7 @@ void* thread_main(void* arg){
 			for(i=strlen("GET "),j=0;buf[i]!='\n';i++,j++)
 				key[j] = buf[i];
 			key[j] = '\0';
-			val = db_get(DB, key, strlen(key));
+			val = db_get(key, strlen(key));
 			memset(buf, 0, MAX_KEYLEN);
 			if(val == NULL) strcpy(buf, "GETINV\n");
 			else{
@@ -121,19 +124,19 @@ void* thread_main(void* arg){
 			for(j=0;buf[i]!='\n';i++,j++) val[j] = buf[i];
 			val[j] = '\0';
 			memset(buf, 0, MAX_KEYLEN);
-			db_put(DB, key, strlen(key), val, strlen(val));
+			db_put(key, strlen(key), val, strlen(val));
 			free(val);
 			strcpy(buf, "PUTOK\n");
 		}else if(!strncmp(buf, "DISCONNECT", strlen("DISCONNECT"))){
 			pthread_mutex_lock(&pmt);
 			i = write(argmt->fd, "BYE\n", strlen("BYE\n"));
 			pthread_mutex_unlock(&pmt);
-            pthread_mutex_lock(&clin_mutex);
+            pthread_mutex_lock(&cnct_mutex);
 			client_n--;
-            pthread_mutex_unlock(&clin_mutex);
+            pthread_mutex_unlock(&cnct_mutex);
 			break;
 		}else{
-			printf("%s\n", buf);
+			printf("%s", buf);
 			memset(buf, 0, MAX_KEYLEN);
 			strcpy(buf, "UNDEFINED PROTOCOL\n");
 		}

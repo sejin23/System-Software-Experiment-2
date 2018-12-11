@@ -50,32 +50,36 @@ void db_close(db_t* db) {
 	free(db);
 }
 
-char* db_get(db_t* db, char* key, int keylen){
+char* db_get(char* key, int keylen){
 	int fd, wtp, keysize, vlid, cnt;
 	int mhash = hash_func(key, db_s), fhash = hash_func(key, MAX_KEYLEN);
 	char dir[MAX_DIR];
 	char buf[MAX_KEYLEN];
-	char* value;
+	char* value = NULL;
 	db_t *temp, *temp_n;
 	vlid = 0;
-	if(db[mhash].key != NULL){
-		temp = &db[mhash];
+	pthread_mutex_lock(&mtx[mhash]);
+	if(DB[mhash].key != NULL){
+		temp = &DB[mhash];
 		vlid = 1;
 		while(1){
 			if(!strcmp(key, temp->key)){
 				value = (char*)malloc(strlen(temp->value)+1);
 				strcpy(value, temp->value);
-				return value;
+				break;
 			}
 			if(temp->next == NULL) break;
 			temp = temp->next;
 		}
 	}
+	pthread_mutex_unlock(&mtx[mhash]);
+	if(value != NULL) return value;
 	cnt = 0;
-	memset(buf, 0, MAX_KEYLEN);
+	memset(dir, 0, MAX_DIR);
 	sprintf(dir, "./db/%d.key", fhash);
 	fd = open(dir, O_RDONLY);
 	while((wtp = read(fd, &keysize, sizeof(int))) > 0){
+		memset(buf, 0, MAX_KEYLEN);
 		wtp = read(fd, buf, keysize);
 		buf[keysize] = '\0';
 		if(!strcmp(buf, key)){
@@ -87,8 +91,11 @@ char* db_get(db_t* db, char* key, int keylen){
 			wtp = read(fd, value, keysize);
 			value[keysize] = '\0';
 			close(fd);
+			pthread_mutex_lock(&kv_mutex);
 			kv_s++;
 			if(kv_s < db_s){
+				pthread_mutex_unlock(&kv_mutex);
+				pthread_mutex_lock(&mtx[mhash]);
 				if(vlid){
 					temp_n = (db_t*)malloc(sizeof(db_t));
 					temp_n->key = (char*)malloc(keylen+1);
@@ -100,17 +107,27 @@ char* db_get(db_t* db, char* key, int keylen){
 					temp_n->next = NULL;
 					temp->next = temp_n;
 				}else{
-					db[mhash].key = (char*)malloc(keylen+1);
-					db[mhash].value = (char*)malloc(keysize+1);
-					strcpy(db[mhash].key, key);
-					strcpy(db[mhash].value, value);
-					db[mhash].count = cnt;
-					db[mhash].origin = 1;
-					db[mhash].next = NULL;
+					DB[mhash].key = (char*)malloc(keylen+1);
+					DB[mhash].value = (char*)malloc(keysize+1);
+					strcpy(DB[mhash].key, key);
+					strcpy(DB[mhash].value, value);
+					DB[mhash].count = cnt;
+					DB[mhash].origin = 1;
+					DB[mhash].next = NULL;
 				}
+				pthread_mutex_unlock(&mtx[mhash]);
 			}else{
-				kv_s = 0;
-				db_put_file(db);
+				pthread_mutex_unlock(&kv_mutex);
+				pthread_mutex_lock(&cnct_mutex);
+				contact_n++;
+				if(contact_n < client_n) pthread_cond_wait(&cnct_cond, &cnct_mutex);
+				else{
+					kv_s = 0;
+					db_put_file();
+					pthread_cond_broadcast(&cnct_cond);
+				}
+				contact_n--;
+				pthread_mutex_unlock(&cnct_mutex);
 			}
 			return value;
 		}
@@ -120,26 +137,28 @@ char* db_get(db_t* db, char* key, int keylen){
 	return NULL;
 }
 
-void db_put(db_t* db, char* key, int keylen, char* val, int vallen){
+void db_put(char* key, int keylen, char* val, int vallen){
 	int mhash = hash_func(key, db_s);
 	db_t *temp, *temp_n;
-	if(db[mhash].key == NULL){
-		db[mhash].key = (char*)malloc(keylen+1);
-		db[mhash].value = (char*)malloc(vallen+1);
-		db[mhash].count = -1;
-		db[mhash].origin = 0;
-		db[mhash].next = NULL;
-		strcpy(db[mhash].key, key);
-		strcpy(db[mhash].value, val);
+	pthread_mutex_lock(&mtx[mhash]);
+	if(DB[mhash].key == NULL){
+		DB[mhash].key = (char*)malloc(keylen+1);
+		DB[mhash].value = (char*)malloc(vallen+1);
+		DB[mhash].count = -1;
+		DB[mhash].origin = 0;
+		DB[mhash].next = NULL;
+		strcpy(DB[mhash].key, key);
+		strcpy(DB[mhash].value, val);
 		kv_s++;
 	}else{
-		temp = &db[mhash];
+		temp = &DB[mhash];
 		while(1){
 			if(!strcmp(key, temp->key)){
 				free(temp->value);
 				temp->value = (char*)malloc(vallen+1);
 				temp->origin = 0;
 				strcpy(temp->value, val);
+				pthread_mutex_unlock(&mtx[mhash]);
 				return;
 			}
 			if(temp->next == NULL) break;
@@ -156,68 +175,80 @@ void db_put(db_t* db, char* key, int keylen, char* val, int vallen){
 		temp->next = temp_n;
 		kv_s++;
 	}
+	pthread_mutex_unlock(&mtx[mhash]);
 	if(kv_s == db_s){
-		kv_s = 0;
-		db_put_file(db);
+		pthread_mutex_lock(&cnct_mutex);
+		contact_n++;
+		if(contact_n < client_n) pthread_cond_wait(&cnct_cond, &cnct_mutex);
+		else{
+			kv_s = 0;
+			db_put_file();
+			pthread_cond_broadcast(&cnct_cond);
+		}
+		contact_n--;
+		pthread_mutex_unlock(&cnct_mutex);
 	}
 	return;
 }
 
-void db_put_file(db_t* db){
-	int i, size, fd_k, fd_v, wtp, keysize, fhash, cnt, vlid;
+void db_put_file(){
+	int i, size, fd, wtp, keysize, fhash, cnt, vlid;
 	char dir[MAX_DIR];
 	char key[MAX_KEYLEN];
 	db_t *temp, *temp_n;
 	size = db_s;
 	for(i=0;i<size;i++){
-		if(db[i].key == NULL) continue;
-		temp = &db[i];
-		while(temp != NULL){
-			temp_n = temp->next;
-			if(temp->origin){
+		pthread_mutex_lock(&mtx[i]);
+		if(DB[i].key != NULL){
+			temp = &DB[i];
+			while(temp != NULL){
+				temp_n = temp->next;
+				if(temp->origin){
+					free(temp->key);
+					free(temp->value);
+					if(temp_n != DB[i].next) free(temp);
+					temp = temp_n;				
+					continue;
+				}
+				memset(dir, 0, MAX_DIR);
+				fhash = hash_func(temp->key, MAX_KEYLEN);
+				if(temp->count == -1){
+					sprintf(dir, "./db/%d.key", fhash);
+					fd = open(dir, O_RDWR);
+					cnt = 0;
+					vlid = 0;
+					while((wtp = read(fd, &keysize, sizeof(int))) > 0){
+						wtp = read(fd, key, keysize);
+						key[keysize] = '\0';
+						if(!strcmp(key, temp->key)){
+							vlid = 1;
+							break;
+						}
+						cnt++;
+					}
+					if(!vlid){
+						lseek(fd, 0, SEEK_END);
+						keysize = strlen(temp->key);
+						wtp = write(fd, &keysize, sizeof(int));
+						wtp = write(fd, temp->key, keysize);
+					}
+					close(fd);
+				}else cnt = temp->count;
+				sprintf(dir, "./db/%d_%d.val", fhash, cnt);
+				fd = open(dir, O_CREAT|O_WRONLY|O_TRUNC, 0755);
+				keysize = strlen(temp->value);
+				wtp = write(fd, &keysize, sizeof(int));
+				wtp = write(fd, temp->value, keysize);
+				close(fd);
 				free(temp->key);
 				free(temp->value);
-				if(temp_n != db[i].next) free(temp);
-				temp = temp_n;				
-				continue;
+				if(temp_n != DB[i].next) free(temp);
+				temp = temp_n;
 			}
-			memset(dir, 0, MAX_DIR);
-			fhash = hash_func(temp->key, MAX_KEYLEN);
-			if(temp->count == -1){
-				sprintf(dir, "./db/%d.key", fhash);
-				fd_k = open(dir, O_RDWR);
-				cnt = 0;
-				vlid = 0;
-				while((wtp = read(fd_k, &keysize, sizeof(int))) > 0){
-					wtp = read(fd_k, key, keysize);
-					key[keysize] = '\0';
-					if(!strcmp(key, temp->key)){
-						vlid = 1;
-						break;
-					}
-					cnt++;
-				}
-				if(vlid == 0){
-					lseek(fd_k, 0, SEEK_END);
-					keysize = strlen(temp->key);
-					wtp = write(fd_k, &keysize, sizeof(int));
-					wtp = write(fd_k, temp->key, keysize);
-				}
-				close(fd_k);
-			}else cnt = temp->count;
-			sprintf(dir, "./db/%d_%d.val", fhash, cnt);
-			fd_v = open(dir, O_CREAT|O_WRONLY, 0755);
-			keysize = strlen(temp->value);
-			wtp = write(fd_v, &keysize, sizeof(int));
-			wtp = write(fd_v, temp->value, keysize);
-			close(fd_v);
-			free(temp->key);
-			free(temp->value);
-			if(temp_n != db[i].next) free(temp);
-			temp = temp_n;
+			DB[i].key = NULL;
+			DB[i].next = NULL;
 		}
-		db[i].key = NULL;
-		db[i].next = NULL;
+		pthread_mutex_unlock(&mtx[i]);
 	}
 }
 
