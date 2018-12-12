@@ -1,8 +1,8 @@
 #include "db.h"
 
 int main(int argc, char** argv){
-	int serverSocket, clientSocket, clntAddrLen, n;
-	struct sockaddr_in serverAddr, clientAddr;
+	int listen_serv_socket, send_serv_socket, listen_cli_socket, send_cli_socket, listenAddrLen, sendAddrLen, n;
+	struct sockaddr_in listenserver, sendserver, listen_clientaddr, send_clientaddr;
     char buf[MAX_KEYLEN];
 	user_t* newuser;
 	arg_t* newarg;
@@ -26,40 +26,61 @@ int main(int argc, char** argv){
 	pthread_mutex_init(&user_mutex, NULL);
 	pthread_mutex_init(&cnct_mutex, NULL);
 	pthread_cond_init(&cnct_cond, NULL);
-	if((serverSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+	if((listen_serv_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
 		perror("socket error");
 		exit(1);
 	}
-	memset(&serverAddr, 0, sizeof(serverAddr));
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	serverAddr.sin_port = htons(atoi(argv[1]));
+	if((send_serv_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+		perror("socket error");
+		exit(1);
+	}
+	memset(&listenserver, 0, sizeof(listenserver));
+	memset(&sendserver, 0, sizeof(sendserver));
+	listenserver.sin_family = AF_INET;
+	listenserver.sin_addr.s_addr = inet_addr("127.0.0.1");
+	listenserver.sin_port = htons(atoi(argv[1]));
+	sendserver.sin_family = AF_INET;
+	sendserver.sin_addr.s_addr = inet_addr("127.0.0.1");
+	sendserver.sin_port = htons(atoi(argv[1])+1);
 
-	if(bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0){
+	if(bind(listen_serv_socket, (struct sockaddr*)&listenserver, sizeof(listenserver)) < 0){
+		perror("bind error");
+		exit(1);
+	}
+	if(bind(send_serv_socket, (struct sockaddr*)&sendserver, sizeof(sendserver)) < 0){
 		perror("bind error");
 		exit(1);
 	}
 	while(1){
-		if(listen(serverSocket, person) < 0){
-			perror("listen error");
+		if(listen(send_serv_socket, person) < 0){
+			perror("listen_send error");
 			exit(1);
 		}
-		clntAddrLen = sizeof(clientAddr);
-		if((clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, (socklen_t*)&clntAddrLen)) < 0){
-			perror("accept error");
+		if(listen(listen_serv_socket, person) < 0){
+			perror("listen_listen error");
+			exit(1);
+		}
+		listenAddrLen = sizeof(listen_clientaddr);
+		sendAddrLen = sizeof(send_clientaddr);
+		if((send_cli_socket = accept(send_serv_socket, (struct sockaddr*)&send_clientaddr, (socklen_t*)&sendAddrLen)) < 0){
+			perror("accept send error");
+			continue;
+		}
+		if((listen_cli_socket = accept(listen_serv_socket, (struct sockaddr*)&listen_clientaddr, (socklen_t*)&listenAddrLen)) < 0){
+			perror("accept listen error");
 			continue;
 		}
         memset(buf, 0, MAX_KEYLEN);
-        n = read(clientSocket, buf, MAX_KEYLEN);
+        n = read(listen_cli_socket, buf, MAX_KEYLEN);
         if(!strncmp(buf, "CONNECT", strlen("CONNECT"))){
             pthread_mutex_lock(&cnct_mutex);
             if(client_n == person){
 				pthread_mutex_unlock(&cnct_mutex);
-                n = write(clientSocket, "CONNECT_FAIL\n", strlen("CONNECT_FAIL\n"));
+                n = write(listen_cli_socket, "CONNECT_FAIL", strlen("CONNECT_FAIL"));
                 continue;
             }else{
 				pthread_mutex_unlock(&cnct_mutex);
-                n = write(clientSocket, "CONNECT_OK\n", strlen("CONNECT_OK\n"));
+                n = write(listen_cli_socket, "CONNECT_OK\n", strlen("CONNECT_OK\n"));
 			}
 			newuser = (user_t*)malloc(sizeof(user_t));
 			newarg = (arg_t*)malloc(sizeof(arg_t));
@@ -71,11 +92,12 @@ int main(int argc, char** argv){
 			USER = newuser;
 			newarg->mutex = newuser;
 			pthread_mutex_unlock(&user_mutex);
-			newarg->fd = clientSocket;
+			newarg->listenfd = listen_cli_socket;
+			newarg->sendfd = send_cli_socket;
 			
             pthread_create(&tid, NULL, thread_main, (void*)newarg);
         }else
-            n = write(clientSocket, "UNDEFINED PROTOCOL\n", strlen("UNDEFINED PROTOCOL\n"));
+            n = write(listen_cli_socket, "UNDEFINED PROTOCOL\n", strlen("UNDEFINED PROTOCOL\n"));
 	}
 	db_close(DB);
 	for(n=0;n<atoi(argv[3]);n++) pthread_mutex_destroy(&mtx[n]);
@@ -89,10 +111,11 @@ void* thread_main(void* arg){
 	char* val;
 	user_t* temp;
 	arg_t* argmt = (arg_t*)arg;
-	pthread_mutex_lock(&user_mutex);
-	pthread_mutex_t pmt = argmt->mutex->serv;
-	pthread_mutex_unlock(&user_mutex);
+	pthread_mutex_t pmt;
 	pthread_detach(pthread_self());
+	pthread_mutex_lock(&user_mutex);
+	pmt = argmt->mutex->serv;
+	pthread_mutex_unlock(&user_mutex);
 
 	pthread_mutex_lock(&cnct_mutex);
 	client_n++;
@@ -100,12 +123,13 @@ void* thread_main(void* arg){
     
 	while(1){
 		memset(buf, 0, MAX_KEYLEN);
+		memset(key, 0, MAX_KEYLEN);
 		pthread_mutex_lock(&pmt);
-		i = read(argmt->fd, buf, MAX_KEYLEN);
+		i = read(argmt->listenfd, buf, MAX_KEYLEN);
 		pthread_mutex_unlock(&pmt);
 		if(i <= 0) break;
 		if(!strncmp(buf, "GET", strlen("GET"))){
-			for(i=strlen("GET "),j=0;buf[i]!='\n';i++,j++)
+			for(i=strlen("GET "),j=0;i<strlen(buf);i++,j++)
 				key[j] = buf[i];
 			key[j] = '\0';
 			val = db_get(key, strlen(key));
@@ -116,20 +140,26 @@ void* thread_main(void* arg){
 				free(val);
 			}
 		}else if(!strncmp(buf, "PUT", strlen("PUT"))){
-			for(i=strlen("PUT "),j=0;buf[i]!=32;i++,j++)
+			for(i=strlen("PUT "),j=0;buf[i]!=32&&i<strlen(buf);i++,j++)
 				key[j] = buf[i];
 			key[j] = '\0';
-			i++;
-			val = (char*)malloc(strlen(buf)-i);
-			for(j=0;buf[i]!='\n';i++,j++) val[j] = buf[i];
-			val[j] = '\0';
-			memset(buf, 0, MAX_KEYLEN);
-			db_put(key, strlen(key), val, strlen(val));
-			free(val);
-			strcpy(buf, "PUTOK\n");
+			if(i < strlen(buf) - 1){
+				val = (char*)malloc(strlen(buf)-i);
+				i++;
+				for(j=0;i<strlen(buf);i++,j++) val[j] = buf[i];
+				val[j] = '\0';
+				memset(buf, 0, MAX_KEYLEN);
+				db_put(key, strlen(key), val, strlen(val));
+				free(val);
+				strcpy(buf, "PUTOK\n");
+			}else{
+				memset(buf, 0, MAX_KEYLEN);
+				strcpy(buf, "UNDEFINED PROTOCOL\n");
+			}
 		}else if(!strncmp(buf, "DISCONNECT", strlen("DISCONNECT"))){
 			pthread_mutex_lock(&pmt);
-			i = write(argmt->fd, "BYE\n", strlen("BYE\n"));
+			i = write(argmt->listenfd, "BYE\n", strlen("BYE\n"));
+			i = write(argmt->sendfd, "BYE\n", strlen("BYE\n"));
 			pthread_mutex_unlock(&pmt);
             pthread_mutex_lock(&cnct_mutex);
 			client_n--;
@@ -141,7 +171,7 @@ void* thread_main(void* arg){
 			strcpy(buf, "UNDEFINED PROTOCOL\n");
 		}
 		pthread_mutex_lock(&pmt);
-		i = write(argmt->fd, buf, strlen(buf));
+		i = write(argmt->listenfd, buf, strlen(buf));
 		pthread_mutex_unlock(&pmt);
 	}
 	pthread_mutex_lock(&user_mutex);
@@ -150,7 +180,8 @@ void* thread_main(void* arg){
 	pthread_mutex_destroy(&temp->serv);
 	free(temp);
 	pthread_mutex_unlock(&user_mutex); 
-	close(argmt->fd);
+	close(argmt->sendfd);
+	close(argmt->listenfd);
 	free(argmt);
 	pthread_exit(NULL);
 }

@@ -25,7 +25,7 @@ typedef struct _user {
 }user_t;
 
 typedef struct _arg {
-	int fd;
+	int listenfd, sendfd;
 	user_t* mutex;
 }arg_t;
 

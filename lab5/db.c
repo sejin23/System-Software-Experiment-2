@@ -14,7 +14,7 @@
 db_t* db_open(int size) {
 	int i, fd;
 	char dir[MAX_DIR] = "./db";
-	db_t* db = (db_t*)malloc(sizeof(db_t)*size);;
+	db_t* db = (db_t*)malloc(sizeof(db_t)*size);
 	db_s = size;
 	kv_s = 0;
 	if(opendir(dir) == NULL){
@@ -34,20 +34,8 @@ db_t* db_open(int size) {
 }
 
 void db_close(db_t* db) {
-	int i;
-	db_t *temp, *temp_n;
-	for(i=0;i<db_s;i++){
-		if(db[i].key == NULL) continue;
-		temp = &db[i];
-		while(temp != NULL){
-			temp_n = temp->next;
-			free(temp->key);
-			free(temp->value);
-			if(temp_n != db[i].next) free(temp);
-			temp = temp_n;
-		}
-	}
-	free(db);
+	db_put_file();
+	free(DB);
 }
 
 char* db_get(char* key, int keylen){
@@ -149,7 +137,6 @@ void db_put(char* key, int keylen, char* val, int vallen){
 		DB[mhash].next = NULL;
 		strcpy(DB[mhash].key, key);
 		strcpy(DB[mhash].value, val);
-		kv_s++;
 	}else{
 		temp = &DB[mhash];
 		while(1){
@@ -173,10 +160,12 @@ void db_put(char* key, int keylen, char* val, int vallen){
 		temp_n->origin = 0;
 		temp_n->next = NULL;
 		temp->next = temp_n;
-		kv_s++;
 	}
 	pthread_mutex_unlock(&mtx[mhash]);
+	pthread_mutex_lock(&kv_mutex);
+	kv_s++;
 	if(kv_s == db_s){
+		pthread_mutex_unlock(&kv_mutex);
 		pthread_mutex_lock(&cnct_mutex);
 		contact_n++;
 		if(contact_n < client_n) pthread_cond_wait(&cnct_cond, &cnct_mutex);
@@ -187,7 +176,7 @@ void db_put(char* key, int keylen, char* val, int vallen){
 		}
 		contact_n--;
 		pthread_mutex_unlock(&cnct_mutex);
-	}
+	}else pthread_mutex_unlock(&kv_mutex);
 	return;
 }
 
