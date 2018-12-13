@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 
 #define MAX_DIR 32
+#define MAX_ASYNC 256
 #define MAX_KEYLEN 1024
 typedef struct db {
 	int origin, count;
@@ -19,21 +20,34 @@ typedef struct db {
 	struct db* next;
 }db_t;
 
-typedef struct _user {
-	pthread_mutex_t serv;
-	struct _user *prev, *next;
-}user_t;
+typedef struct _async {
+	int valid;
+	char *key, *value;
+}async_t;
 
 typedef struct _arg {
 	int listenfd, sendfd;
-	user_t* mutex;
 }arg_t;
+
+typedef struct _asyget {
+	pthread_mutex_t sendmutex, countmutex;
+	pthread_cond_t findcond,countcond;
+	int sendfd, *asy_num;
+	char* key;
+	async_t* asy;
+}asyget_t;
+
+typedef struct _asywait {
+	pthread_mutex_t sendmutex, countmutex;
+	pthread_cond_t findcond, countcond;
+	async_t* asy;
+	int tag, sendfd, *asy_num;
+}asywait_t;
 
 int client_n, contact_n, person, db_s, kv_s;
 db_t* DB;
-user_t* USER;
 pthread_mutex_t* mtx;
-pthread_mutex_t cnct_mutex, dbs_mutex, kv_mutex, user_mutex;
+pthread_mutex_t cnct_mutex, dbs_mutex, kv_mutex;
 pthread_cond_t cnct_cond;
 
 db_t* db_open(int size);
@@ -44,6 +58,8 @@ void db_put_file();
 int hash_func(char* str, int size);
 
 void* thread_main(void* arg);
-void* async_sock(void* arg);
+void* async_get(void* arg);
+void* async_test(void* arg);
+void* async_wait(void* arg);
 void* readpth(void* arg);
 void* writepth(void* arg);

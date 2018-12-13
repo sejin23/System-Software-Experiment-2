@@ -73,8 +73,8 @@ void* readpth(void* arg){
             buf[i++] = word;
         }
         buf[i] = '\0';
-
         n = write(cfd, buf, strlen(buf));
+        if(buf[0] == 'A') continue;
         memset(buf, 0, sizeof(buf));
         n = read(cfd, buf, MAX_KEYLEN);
         printf("%s", buf);

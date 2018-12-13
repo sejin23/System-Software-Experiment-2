@@ -3,7 +3,15 @@
 #include <string.h>
 #define MAX_KEYLEN 1024
 int main(){
-    int i, j, len;
+    int u, i;
+    char* key = "132l";
+    char buf[MAX_KEYLEN];
+    memset(buf, 0, MAX_KEYLEN);
+    u = atoi(key);
+    sprintf(buf, "%d", u);
+    if(!strcmp(key, buf)) printf("same\n");
+    else printf("diff\n");
+    /*int i, j, len;
     char buf[MAX_KEYLEN];
     char key[MAX_KEYLEN];
     char* val;
@@ -31,5 +39,5 @@ int main(){
                 free(val);
             }
         }
-    }
+    }*/
 }
