@@ -21,34 +21,25 @@ typedef struct db {
 }db_t;
 
 typedef struct _async {
-	int valid;
+	int valid, cfd;
 	char *key, *value;
 }async_t;
 
-typedef struct _arg {
-	int listenfd, sendfd;
-}arg_t;
-
 typedef struct _asyget {
-	pthread_mutex_t sendmutex, countmutex;
-	pthread_cond_t findcond,countcond;
-	int sendfd, *asy_num;
+	int tag;
 	char* key;
-	async_t* asy;
 }asyget_t;
 
 typedef struct _asywait {
-	pthread_mutex_t sendmutex, countmutex;
-	pthread_cond_t findcond, countcond;
-	async_t* asy;
-	int tag, sendfd, *asy_num;
+	int tag, cfd;
 }asywait_t;
 
-int client_n, contact_n, person, db_s, kv_s;
+int client_n, contact_n, person, db_s, kv_s, asy_cmd;
 db_t* DB;
+async_t* Asynn;
 pthread_mutex_t* mtx;
-pthread_mutex_t cnct_mutex, dbs_mutex, kv_mutex;
-pthread_cond_t cnct_cond;
+pthread_mutex_t cnct_mutex, dbs_mutex, kv_mutex, asynn_mutex;
+pthread_cond_t cnct_cond, asynn_cond;
 
 db_t* db_open(int size);
 void db_close(db_t* db);
