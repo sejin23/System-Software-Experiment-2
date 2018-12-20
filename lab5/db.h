@@ -38,7 +38,7 @@ int client_n, contact_n, person, db_s, kv_s, asy_cmd;
 db_t* DB;
 async_t* Asynn;
 pthread_mutex_t* mtx;
-pthread_mutex_t cnct_mutex, dbs_mutex, kv_mutex, asynn_mutex;
+pthread_mutex_t cnct_mutex, kv_mutex, asynn_mutex;
 pthread_cond_t cnct_cond, asynn_cond;
 
 db_t* db_open(int size);

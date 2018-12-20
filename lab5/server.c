@@ -23,7 +23,6 @@ int main(int argc, char** argv){
 	contact_n = 0;
 	asy_cmd = 0;
 	pthread_mutex_init(&cnct_mutex, NULL);
-	pthread_mutex_init(&dbs_mutex, NULL);
 	pthread_mutex_init(&kv_mutex, NULL);
 	pthread_cond_init(&cnct_cond, NULL);
 	if((serverfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
@@ -140,13 +139,16 @@ void* thread_main(void* arg){
 					}
 				}
 				pthread_mutex_unlock(&asynn_mutex);
-				aget = (asyget_t*)malloc(sizeof(asyget_t));
-				aget->tag = i;
-				aget->key = (char*)malloc(strlen(key)+1);
-				strcpy(aget->key, key);
-				pthread_create(&tid, NULL, async_get, (void*)aget);
 				memset(buf, 0, MAX_KEYLEN);
-				sprintf(buf, "AGETOK %d\n", i+1);
+				if(i < MAX_ASYNC){
+					aget = (asyget_t*)malloc(sizeof(asyget_t));
+					aget->tag = i;
+					aget->key = (char*)malloc(strlen(key)+1);
+					strcpy(aget->key, key);
+					pthread_create(&tid, NULL, async_get, (void*)aget);
+					sprintf(buf, "AGETOK %d\n", i+1);
+				}else
+					strcpy(buf, "AINV\n");
 			}else{
 				memset(buf, 0, MAX_KEYLEN);
 				strcpy(buf, "UNDEFINED PROTOCOL\n");
@@ -188,7 +190,6 @@ void* thread_main(void* arg){
             pthread_mutex_unlock(&cnct_mutex);
 			break;
 		}else{
-			printf("%s", buf);
 			memset(buf, 0, MAX_KEYLEN);
 			strcpy(buf, "UNDEFINED PROTOCOL\n");
 		}
