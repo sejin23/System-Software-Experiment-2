@@ -92,7 +92,6 @@ void* thread_main(void* arg){
 			buf[j++] = word;
 		}
 		buf[j] = '\0';
-		printf("%s\n", buf);
 		if(!strncmp(buf, "GET", strlen("GET"))){
 			for(i=strlen("GET "),j=0;buf[i]!=32&&buf[i]!='\n'&&i<strlen(buf);i++,j++)
 				key[j] = buf[i];
@@ -161,14 +160,19 @@ void* thread_main(void* arg){
 				else j = 0;
 				memset(buf, 0, MAX_KEYLEN);
 				sprintf(buf, "%d", atoi(key));
-				if(!strcmp(buf, key) && (atoi(key) > 0 && atoi(key) <= MAX_ASYNC)){
-					await = (asywait_t*)malloc(sizeof(asywait_t));
-					await->cfd = cfd;
-					await->tag = atoi(key);
-					if(j) pthread_create(&tid, NULL, async_test, (void*)await);
-					else pthread_create(&tid, NULL, async_wait, (void*)await);
-					pthread_join(tid, NULL);
-					continue;
+				if(!strcmp(buf, key)){
+					if(atoi(key) > 0 && atoi(key) <= MAX_ASYNC){
+						await = (asywait_t*)malloc(sizeof(asywait_t));
+						await->cfd = cfd;
+						await->tag = atoi(key);
+						if(j) pthread_create(&tid, NULL, async_test, (void*)await);
+						else pthread_create(&tid, NULL, async_wait, (void*)await);
+						pthread_join(tid, NULL);
+						continue;
+					}else{
+						memset(buf, 0, MAX_KEYLEN);
+						strcpy(buf, "AINV\n");
+					}
 				}else{
 					memset(buf, 0, MAX_KEYLEN);
 					strcpy(buf, "UNDEFINED PROTOCOL\n");
@@ -190,6 +194,18 @@ void* thread_main(void* arg){
 		}
 		i = write(cfd, buf, strlen(buf));
 	}
+	pthread_mutex_lock(&asynn_mutex);
+	for(i=0;i<MAX_ASYNC;i++){
+		if(Asynn[i].cfd == cfd){
+			Asynn[i].cfd = 0;
+			free(Asynn[i].key);
+			if(Asynn[i].value != NULL) free(Asynn[i].value);
+			Asynn[i].key = NULL;
+			Asynn[i].value = NULL;
+			Asynn[i].valid = 0;
+		}
+	}
+	pthread_mutex_unlock(&asynn_mutex);
 	close(cfd);
 	pthread_exit(NULL);
 }
@@ -218,7 +234,7 @@ void* async_test(void* arg){
 	pthread_detach(pthread_self());
 	memset(buf, 0, MAX_KEYLEN);
 	pthread_mutex_lock(&asynn_mutex);
-	if(Asynn[argsyn->tag-1].key != NULL){
+	if(Asynn[argsyn->tag-1].key != NULL && Asynn[argsyn->tag-1].cfd == argsyn->cfd){
 		if(Asynn[argsyn->tag-1].valid){
 			if(Asynn[argsyn->tag-1].value == NULL){
 				strcpy(buf, "GETINV\n");
@@ -253,7 +269,7 @@ void* async_wait(void* arg){
 	pthread_detach(pthread_self());
 	memset(buf, 0, MAX_KEYLEN);
 	pthread_mutex_lock(&asynn_mutex);
-	if(Asynn[argsyn->tag-1].key != NULL){
+	if(Asynn[argsyn->tag-1].key != NULL && Asynn[argsyn->tag-1].cfd == argsyn->cfd){
 		while(!Asynn[argsyn->tag-1].valid) pthread_cond_wait(&asynn_cond, &asynn_mutex);
 		if(Asynn[argsyn->tag-1].value == NULL){
 			strcpy(buf, "GETINV\n");
